@@ -24,11 +24,14 @@ export async function POST(req: NextRequest) {
   }
 
   // LOG TEMPORÁRIO — remover após diagnóstico
-  console.log("[webhook] body:", JSON.stringify(body, null, 2));
+  if (body.type === "ReceivedCallback" && !body.fromMe) {
+    console.log("[webhook] ReceivedCallback keys:", Object.keys(body));
+    console.log("[webhook] body:", JSON.stringify(body, null, 2));
+  }
 
   const parsed = parseWhatsAppWebhookBody(body);
   if ("skip" in parsed) {
-    // 200: Z-API e similares reintentam se não for sucesso — evita flood de 400 em fromMe / mídia sem texto / eventos vazios
+    console.log("[webhook] skipped:", parsed.reason, "| type:", body.type, "| fromMe:", body.fromMe);
     return NextResponse.json({ ok: true, ignored: parsed.reason });
   }
 
@@ -62,12 +65,16 @@ export async function POST(req: NextRequest) {
   }
 
   if (messageType === "IMAGE" && imageUrl && openaiKey) {
+    console.log("[webhook] analisando imagem:", imageUrl);
     const analysis = await analyzeMediaWithAI(imageUrl, "image", openaiKey);
+    console.log("[webhook] análise imagem:", analysis?.slice(0, 100) ?? "NULL");
     if (analysis) messageContent = `[Imagem enviada pelo cliente]\n${analysis}`;
   }
 
   if (messageType === "DOCUMENT" && documentUrl && openaiKey) {
+    console.log("[webhook] analisando documento:", documentUrl);
     const analysis = await analyzeMediaWithAI(documentUrl, "document", openaiKey);
+    console.log("[webhook] análise documento:", analysis?.slice(0, 100) ?? "NULL");
     if (analysis) messageContent = `[Documento: ${documentName ?? "arquivo"}]\n${analysis}`;
   }
 

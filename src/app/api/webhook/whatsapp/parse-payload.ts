@@ -92,12 +92,13 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   let imageUrl: string | undefined;
   if (image?.imageUrl) {
     imageUrl = image.imageUrl;
-    content = str(image.caption) ?? content ?? "[Imagem recebida]";
+    // caption pode ser string vazia — usa placeholder para garantir que não seja ignorado
+    if (!content.trim()) content = str(image.caption) || "[Imagem recebida]";
   }
 
   const video = body.video as { caption?: string; videoUrl?: string } | undefined;
-  if (!content && video) {
-    content = str(video.caption) ?? (video.videoUrl ? `[Vídeo] ${video.videoUrl}` : "[Vídeo recebido]");
+  if (video?.videoUrl && !content.trim()) {
+    content = str(video.caption) || "[Vídeo recebido]";
   }
 
   const doc = body.document as { fileName?: string; documentUrl?: string } | undefined;
@@ -106,7 +107,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   if (doc?.documentUrl) {
     documentUrl = doc.documentUrl;
     documentName = str(doc.fileName) ?? "arquivo";
-    content = content || `[Documento: ${documentName}]`;
+    if (!content.trim()) content = `[Documento: ${documentName}]`;
   }
 
   // Áudio — Z-API: body.audio.audioUrl | body.audio.pttUrl | body.pttUrl
