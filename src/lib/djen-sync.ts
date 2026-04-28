@@ -101,8 +101,9 @@ export async function fetchComunicacoesOAB(
 
     const res = await fetch(url.toString(), {
       headers: {
-        "User-Agent": "AdvZap/1.0 (DJEN; +https://comunica.pje.jus.br)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         Accept: "application/json",
+        Referer: "https://comunicacao.pje.jus.br/",
       },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

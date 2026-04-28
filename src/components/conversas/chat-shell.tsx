@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ConvertLeadButton } from "@/components/kanban/convert-lead-button";
 import type { Conversation, Lead, Message as PrismaMessage } from "@prisma/client";
+import { pusherClient } from "@/lib/pusher-client";
 
 type ConvRow = Conversation & {
   lead: Lead | null;
@@ -90,8 +91,46 @@ export function ChatShell() {
     }
   };
 
-  // Mantém ref atualizada para uso dentro do closure SSE
+  // Mantém ref atualizada para uso dentro do closure Pusher
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+
+  // Subscription Pusher em tempo real
+  useEffect(() => {
+    if (!orgId) return;
+
+    const channel = pusherClient.subscribe(`org-${orgId}`);
+
+    channel.bind("message", (payload: { conversationId: string; message: PrismaMessage }) => {
+      const { conversationId, message } = payload;
+      const msg = { ...message, createdAt: new Date(message.createdAt) };
+
+      setList((prev) =>
+        prev.map((c) => {
+          if (c.id !== conversationId) return c;
+          const already = c.messages?.some((m) => m.id === msg.id);
+          if (already) return c;
+          const isActive = selectedIdRef.current === conversationId;
+          return {
+            ...c,
+            messages: [...(c.messages ?? []), msg],
+            lastMessageAt: msg.createdAt,
+            unreadCount: isActive ? 0 : (c.unreadCount ?? 0) + 1,
+          };
+        })
+      );
+
+      // Se a conversa desta mensagem não existir na lista ainda, recarrega tudo
+      setList((prev) => {
+        const exists = prev.some((c) => c.id === conversationId);
+        if (!exists) fetchConversations();
+        return prev;
+      });
+    });
+
+    return () => {
+      pusherClient.unsubscribe(`org-${orgId}`);
+    };
+  }, [orgId]);
 
   const selected = useMemo(() => list.find((c) => c.id === selectedId) ?? null, [list, selectedId]);
 

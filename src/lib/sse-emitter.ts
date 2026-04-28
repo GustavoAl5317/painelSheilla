@@ -1,9 +1,11 @@
-/**
- * Emitter simplificado (SSE desativado a pedido do usuário).
- * O sistema agora utiliza atualização manual via botão no painel.
- */
-export async function emit(_orgId: string, _event: string, _data: unknown) {
-  // No-op
+import { pusherServer } from "@/lib/pusher";
+
+export async function emit(orgId: string, event: string, data: unknown) {
+  try {
+    await pusherServer.trigger(`org-${orgId}`, event, data);
+  } catch (err) {
+    console.error("[pusher] trigger failed:", err);
+  }
 }
 
 export function subscribe(_orgId: string, _ctrl: any) {}

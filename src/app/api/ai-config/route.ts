@@ -7,12 +7,6 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const organizationId = (session.user as { organizationId: string }).organizationId;
-  
-  // Debug para descobrir a org correta
-  try {
-    const fs = require("fs");
-    fs.writeFileSync("c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\scratch\\current_org.txt", organizationId);
-  } catch(e) {}
 
   const config = await prisma.aIConfig.findFirst({ where: { organizationId } });
   console.log(`[AI Config GET] orgId: ${organizationId}, found: ${!!config}, blockedCount: ${Array.isArray((config as any)?.blockedNumbers) ? (config as any).blockedNumbers.length : "not_array"}`);
