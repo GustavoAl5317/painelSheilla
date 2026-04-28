@@ -8,6 +8,31 @@ const bodySchema = z.object({
   content: z.string().min(1).max(4000),
 });
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
+  const orgId = (session.user as { organizationId: string }).organizationId;
+  const { id: conversationId } = await params;
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, organizationId: orgId },
+  });
+  if (!conversation) {
+    return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return NextResponse.json({ data: messages });
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

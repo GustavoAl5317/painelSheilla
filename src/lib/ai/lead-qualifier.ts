@@ -6,7 +6,14 @@ import type { AIMessage, LeadChatMode } from "./ai-service";
 
 async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId } });
-  if (!aiConfig || !aiConfig.isActive) return null;
+  if (!aiConfig) {
+    console.log(`[AI Config] Nenhuma configuração de IA encontrada para org ${organizationId}`);
+    return null;
+  }
+  if (!aiConfig.isActive) {
+    console.log(`[AI Config] IA está desativada globalmente para org ${organizationId}`);
+    return null;
+  }
 
   // Verifica bloqueio em massa por número
   const blockedList = (aiConfig as any).blockedNumbers;

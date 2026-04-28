@@ -136,10 +136,17 @@ export async function POST(req: NextRequest) {
 
   // ── Processa com IA (somente se aiEnabled) ────────────────────────────────
   if (!conversation.aiEnabled) {
+    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada.`);
     return NextResponse.json({ ok: true, ai: "disabled" });
   }
 
+  console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
   const aiResult = await processIncomingMessage(org.id, conversation.id, messageContent);
+
+  if (!aiResult) {
+    console.log(`[Webhook] AI não retornou resultado (Configuração inativa ou erro no provider).`);
+    return NextResponse.json({ ok: true, ai: "no_result" });
+  }
 
   if (aiResult?.content) {
     const aiMsg = await prisma.message.create({
