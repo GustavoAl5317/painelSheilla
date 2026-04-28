@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ConvertLeadButton } from "@/components/kanban/convert-lead-button";
 import type { Conversation, Lead, Message as PrismaMessage } from "@prisma/client";
-import { pusherClient } from "@/lib/pusher-client";
 
 type ConvRow = Conversation & {
   lead: Lead | null;
@@ -91,46 +90,51 @@ export function ChatShell() {
     }
   };
 
-  // Mantém ref atualizada para uso dentro do closure Pusher
+  // Mantém ref atualizada para uso dentro dos closures de polling
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
-  // Subscription Pusher em tempo real
+  // Polling automático: atualiza lista de conversas a cada 5s e mensagens da conversa aberta a cada 3s
   useEffect(() => {
-    if (!orgId) return;
+    const pollConversations = async () => {
+      try {
+        const r = await fetch("/api/conversations", { credentials: "include" });
+        if (!r.ok) return;
+        const j = await r.json();
+        const fresh: ConvRow[] = (j.data ?? []).filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => t.id === v.id) === i);
+        if (j.organizationId) setOrgId(j.organizationId);
+        setList((prev) => {
+          // Mantém mensagens já carregadas da conversa aberta para não perder histórico local
+          return fresh.map((c) => {
+            const existing = prev.find((p) => p.id === c.id);
+            if (existing && existing.messages?.length > (c.messages?.length ?? 0)) {
+              return { ...c, messages: existing.messages };
+            }
+            return c;
+          });
+        });
+      } catch {}
+    };
 
-    const channel = pusherClient.subscribe(`org-${orgId}`);
+    const pollMessages = async () => {
+      const id = selectedIdRef.current;
+      if (!id) return;
+      try {
+        const res = await fetch(`/api/conversations/${id}/messages`, { credentials: "include" });
+        if (!res.ok) return;
+        const j = await res.json();
+        const messages = (j.data as PrismaMessage[]).map((m) => ({ ...m, createdAt: new Date(m.createdAt) }));
+        setList((prev) => prev.map((c) => c.id === id ? { ...c, messages } : c));
+      } catch {}
+    };
 
-    channel.bind("message", (payload: { conversationId: string; message: PrismaMessage }) => {
-      const { conversationId, message } = payload;
-      const msg = { ...message, createdAt: new Date(message.createdAt) };
-
-      setList((prev) =>
-        prev.map((c) => {
-          if (c.id !== conversationId) return c;
-          const already = c.messages?.some((m) => m.id === msg.id);
-          if (already) return c;
-          const isActive = selectedIdRef.current === conversationId;
-          return {
-            ...c,
-            messages: [...(c.messages ?? []), msg],
-            lastMessageAt: msg.createdAt,
-            unreadCount: isActive ? 0 : (c.unreadCount ?? 0) + 1,
-          };
-        })
-      );
-
-      // Se a conversa desta mensagem não existir na lista ainda, recarrega tudo
-      setList((prev) => {
-        const exists = prev.some((c) => c.id === conversationId);
-        if (!exists) fetchConversations();
-        return prev;
-      });
-    });
+    const convTimer = setInterval(pollConversations, 5000);
+    const msgTimer = setInterval(pollMessages, 3000);
 
     return () => {
-      pusherClient.unsubscribe(`org-${orgId}`);
+      clearInterval(convTimer);
+      clearInterval(msgTimer);
     };
-  }, [orgId]);
+  }, []);
 
   const selected = useMemo(() => list.find((c) => c.id === selectedId) ?? null, [list, selectedId]);
 
