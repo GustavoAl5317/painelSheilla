@@ -19,7 +19,7 @@ const PRIMARY = "#95304e";
 
 const mainNav = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Leads / Kanban", href: "/leads", icon: Users },
+  { label: "Triagem", href: "/leads", icon: Users },
   { label: "Conversas", href: "/conversas", icon: MessageSquare },
   { label: "Clientes", href: "/clientes", icon: Briefcase },
   { label: "Processos", href: "/processos", icon: Scale },

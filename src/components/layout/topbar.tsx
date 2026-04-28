@@ -185,7 +185,7 @@ export function Topbar({ title }: TopbarProps) {
                   )}
                   {searchResults!.leads.length > 0 && (
                     <div>
-                      <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">Leads</p>
+                      <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">Triagem</p>
                       {searchResults!.leads.map((l) => (
                         <Link key={l.id} href="/leads" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}
                           className="flex items-center gap-3 px-4 py-2.5 hover:bg-green-50/60 transition-colors">

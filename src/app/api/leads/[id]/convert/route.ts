@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isValidCpf, normalizeCpfDigits } from "@/lib/utils";
 import { ensureClientCaseCard, appendCaseCardEntry } from "@/lib/case-card";
+import { resolveCredential } from "@/lib/credentials";
+import { summarizeCaseCardForWhatsApp } from "@/lib/ai/ai-service";
 
 export async function POST(
   req: NextRequest,
@@ -163,5 +165,84 @@ export async function POST(
     processId: process!.id,
   });
 
+  // Gera resumo do atendimento com IA e adiciona ao card do cliente/processo
+  generateConversionSummary({
+    organizationId,
+    clientId: client.id,
+    clientName: client.name,
+    leadId: id,
+    lead,
+    processId: process!.id,
+  }).catch((e) => console.error("[convert] summary failed:", (e as Error).message));
+
   return NextResponse.json({ ok: true, client });
+}
+
+async function generateConversionSummary({
+  organizationId,
+  clientId,
+  clientName,
+  leadId,
+  lead,
+  processId,
+}: {
+  organizationId: string;
+  clientId: string;
+  clientName: string;
+  leadId: string;
+  lead: { legalArea?: string | null; caseSummary?: string | null; aiSummary?: string | null };
+  processId: string;
+}) {
+  const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId } });
+  if (!aiConfig?.isActive) return;
+
+  const provider: "openai" | "anthropic" = aiConfig.provider === "ANTHROPIC" ? "anthropic" : "openai";
+  const credKey = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+  const orgKey = await resolveCredential(organizationId, credKey);
+  const apiKey = orgKey ?? aiConfig.apiKey ?? "";
+  if (!apiKey) return;
+
+  // Busca histórico de mensagens da conversa do lead
+  const conversation = await prisma.conversation.findFirst({
+    where: { organizationId, leadId },
+    include: { messages: { orderBy: { createdAt: "asc" }, take: 60 } },
+  });
+
+  const lines: string[] = [];
+
+  if (lead.legalArea) lines.push(`Área jurídica: ${lead.legalArea}`);
+  if (lead.caseSummary) lines.push(`Resumo do caso (IA): ${lead.caseSummary}`);
+  if (lead.aiSummary)   lines.push(`Observações: ${lead.aiSummary}`);
+
+  if (conversation?.messages.length) {
+    lines.push("\nHistórico do atendimento via WhatsApp:");
+    for (const m of conversation.messages) {
+      const role = m.direction === "INBOUND" ? "Cliente" : m.isAI ? "IA" : "Atendente";
+      lines.push(`[${role}] ${m.content}`);
+    }
+  }
+
+  if (lines.length === 0) return;
+
+  const rawText = lines.join("\n");
+  const firstName = clientName.split(" ")[0];
+
+  const summary = await summarizeCaseCardForWhatsApp(rawText, firstName, apiKey, provider, aiConfig.model ?? undefined);
+  if (!summary?.trim()) return;
+
+  const content = [
+    "**Resumo do atendimento (gerado pela IA no momento da conversão)**",
+    "",
+    summary,
+    "",
+    lead.legalArea ? `Área: ${lead.legalArea}` : "",
+    lead.caseSummary ? `Caso: ${lead.caseSummary}` : "",
+  ].filter(Boolean).join("\n");
+
+  await appendCaseCardEntry(organizationId, clientId, {
+    source: "SYSTEM",
+    content,
+    shareWithClient: true,
+    processId,
+  });
 }

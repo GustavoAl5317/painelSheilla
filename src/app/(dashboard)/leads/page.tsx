@@ -26,7 +26,7 @@ export default async function LeadsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Topbar title="Leads / Kanban" />
+      <Topbar title="Triagem" />
       <div className="flex-1 overflow-hidden">
         <KanbanBoard initialStages={stages as any} organizationId={orgId} />
       </div>

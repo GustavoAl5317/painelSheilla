@@ -41,22 +41,19 @@ export async function runAIChat(
     { role: "user", content: userMessage },
   ];
 
-  let responseContent = "";
-
-  if (config.provider === "openai") {
-    responseContent = await callOpenAI(config.apiKey, config.model, messages);
-  } else if (config.provider === "anthropic") {
-    responseContent = await callAnthropic(config.apiKey, config.model, messages);
-  }
+  // Roda resposta ao cliente e extração de dados em paralelo
+  const [responseContent, qualifiedData] = await Promise.all([
+    config.provider === "openai"
+      ? callOpenAI(config.apiKey, config.model, messages)
+      : callAnthropic(config.apiKey, config.model, messages),
+    extractQualifiedDataWithAI(config.apiKey, config.provider, config.model, history, userMessage),
+  ]);
 
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
     responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
 
-  // Remove a tag interna da resposta antes de enviar ao lead
   const cleanContent = responseContent.replace("[TRANSFERIR_PARA_HUMANO]", "").trim();
-
-  const qualifiedData = extractQualifiedData(history, userMessage);
 
   return {
     content: cleanContent,
@@ -95,98 +92,67 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
   return `${base}${clientSection}${instructions}`;
 }
 
-// ─── Extração estruturada de dados do histórico ───────────────────────────────
+// ─── Extração estruturada de dados via IA ────────────────────────────────────
 
-function extractQualifiedData(
+async function extractQualifiedDataWithAI(
+  apiKey: string,
+  provider: "openai" | "anthropic",
+  model: string,
   history: AIMessage[],
   userMessage: string
-): AIResponse["qualifiedData"] {
-  // Apenas mensagens do usuário (lead)
-  const userTexts = history.filter(m => m.role === "user").map(m => m.content);
-  userTexts.push(userMessage);
-  const allUserText = userTexts.join(" ");
-  const allText = [...history.map(m => m.content), userMessage].join(" ");
+): Promise<AIResponse["qualifiedData"]> {
+  const allUserText = history
+    .filter(m => m.role === "user")
+    .map(m => m.content)
+    .concat(userMessage)
+    .join("\n");
 
-  // Nome — padrões comuns em pt-BR
-  const namePatterns = [
-    /meu nome[^\w]{0,5}(?:é|e)\s+([A-ZÀ-Úa-zà-ú]{2,}(?:\s+[A-ZÀ-Úa-zà-ú]{2,})*)/i,
-    /me chamo\s+([A-ZÀ-Úa-zà-ú]{2,}(?:\s+[A-ZÀ-Úa-zà-ú]{2,})*)/i,
-    /pode(?:m)?\s+me chamar de\s+([A-ZÀ-Úa-zà-ú]{2,})/i,
-    /sou\s+(?:o|a)\s+([A-ZÀ-Úa-zà-ú]{2,}(?:\s+[A-ZÀ-Úa-zà-ú]{2,})*)/i,
-    /chamo[^\w]{0,5}([A-ZÀ-Úa-zà-ú]{2,}(?:\s+[A-ZÀ-Úa-zà-ú]{2,})*)/i,
-  ];
-  let name: string | undefined;
-  for (const pattern of namePatterns) {
-    const m = allUserText.match(pattern);
-    if (m) { name = titleCase(m[1]); break; }
-  }
-
-  // E-mail
-  const emailMatch = allUserText.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
-
-  // CPF
+  // CPF e e-mail são mais confiáveis via regex — mantém para não desperdiçar tokens
   const cpfMatch = allUserText.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
   const cpf = cpfMatch ? cpfMatch[0].replace(/\D/g, "") : undefined;
+  const emailMatch = allUserText.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
 
-  // Telefone (exclui o número de origem da conversa)
-  const phoneMatch = allUserText.match(/(\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4})/);
-
-  // Área jurídica
-  const LEGAL_AREAS: Record<string, string> = {
-    trabalhista: "Direito Trabalhista",
-    família: "Direito de Família",
-    familiar: "Direito de Família",
-    civil: "Direito Civil",
-    criminal: "Direito Criminal",
-    penal: "Direito Criminal",
-    previdenciário: "Direito Previdenciário",
-    previdencia: "Direito Previdenciário",
-    inss: "Direito Previdenciário",
-    tributário: "Direito Tributário",
-    fiscal: "Direito Tributário",
-    empresarial: "Direito Empresarial",
-    imobiliário: "Direito Imobiliário",
-    consumidor: "Direito do Consumidor",
-    divórcio: "Direito de Família",
-    divorcio: "Direito de Família",
-    herança: "Direito de Família",
-    heranca: "Direito de Família",
-    demissão: "Direito Trabalhista",
-    demissao: "Direito Trabalhista",
-    aposentadoria: "Direito Previdenciário",
-  };
-  const lowerAll = allText.toLowerCase();
-  let legalArea: string | undefined;
-  for (const [keyword, area] of Object.entries(LEGAL_AREAS)) {
-    if (lowerAll.includes(keyword)) { legalArea = area; break; }
-  }
-
-  // Resumo — mensagem mais longa do usuário (proxy para a descrição do problema)
-  const caseSummary = [...userTexts]
-    .sort((a, b) => b.length - a.length)[0]
-    ?.slice(0, 500);
-
-  // Score de qualificação (0–100)
-  let score = 0;
-  if (name)                            score += 25;
-  if (phoneMatch)                      score += 20;
-  if (emailMatch)                      score += 15;
-  if (legalArea)                       score += 25;
-  if (caseSummary && caseSummary.length > 30) score += 15;
-
-  return {
-    name,
-    email: emailMatch?.[0],
-    phone: phoneMatch?.[0],
-    cpf,
-    legalArea,
-    caseSummary,
-    score,
-  };
+  const systemPrompt = `Você é um extrator de dados de conversas jurídicas. Analise o histórico e retorne APENAS um JSON válido com estes campos (omita os que não encontrar):
+{
+  "name": "nome completo do cliente (apenas se mencionado explicitamente)",
+  "phone": "telefone alternativo informado pelo cliente (não o número do WhatsApp dele)",
+  "legalArea": "uma das opções: Direito Trabalhista | Direito de Família | Direito Civil | Direito Criminal | Direito Previdenciário | Direito Tributário | Direito Empresarial | Direito Imobiliário | Direito do Consumidor",
+  "caseSummary": "resumo objetivo do problema jurídico em 1-2 frases",
+  "score": número de 0 a 100 representando o quanto o lead está qualificado (nome+área+resumo = 100)
 }
+Retorne APENAS o JSON, sem markdown.`;
 
-function titleCase(str: string) {
-  return str.replace(/\b\w/g, c => c.toUpperCase());
+  const conv = history
+    .filter(m => m.role !== "system")
+    .map(m => `${m.role === "user" ? "Cliente" : "Atendente"}: ${m.content}`)
+    .concat(`Cliente: ${userMessage}`)
+    .join("\n");
+
+  const messages: AIMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: conv },
+  ];
+
+  try {
+    const raw = provider === "openai"
+      ? await callOpenAI(apiKey, model, messages)
+      : await callAnthropic(apiKey, model, messages);
+
+    const parsed = JSON.parse(raw.replace(/```json\n?|```/g, "").trim());
+
+    return {
+      name: parsed.name || undefined,
+      phone: parsed.phone || undefined,
+      email: emailMatch?.[0],
+      cpf,
+      legalArea: parsed.legalArea || undefined,
+      caseSummary: parsed.caseSummary || undefined,
+      score: typeof parsed.score === "number" ? parsed.score : 0,
+    };
+  } catch {
+    // Fallback sem IA: pelo menos garante CPF e email
+    return { cpf, email: emailMatch?.[0], score: 0 };
+  }
 }
 
 // ─── Interpretação de publicações judiciais ───────────────────────────────────

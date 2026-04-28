@@ -65,9 +65,15 @@ export async function POST(req: NextRequest) {
       where: { organizationId: org.id, slug: "new_lead" },
     });
 
+    // Verifica se este número pertencia a um cliente excluído — usa o nome dele se sim
+    const formerClient = await prisma.client.findFirst({
+      where: { organizationId: org.id, phone: phoneNumber },
+      select: { name: true },
+    });
+
     const lead = await prisma.lead.create({
       data: {
-        name: phoneNumber,
+        name: formerClient?.name ?? phoneNumber,
         phone: phoneNumber,
         source: "WHATSAPP",
         organizationId: org.id,

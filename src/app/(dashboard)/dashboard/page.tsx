@@ -37,7 +37,7 @@ export default async function DashboardPage() {
       href: "/clientes",
     },
     {
-      label: "Leads no Funil",
+      label: "Em Triagem",
       value: data.totalLeads,
       sub: `${data.newLeads} novos aguardando`,
       icon: Users,
@@ -186,9 +186,9 @@ export default async function DashboardPage() {
             <Card className="xl:col-span-1">
               <CardHeader className="pb-2 px-5 pt-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold text-gray-700">Pipeline de Leads</CardTitle>
+                  <CardTitle className="text-sm font-semibold text-gray-700">Triagem</CardTitle>
                   <Link href="/leads" className="text-[11px] font-medium" style={{ color: PRIMARY }}>
-                    Ver Kanban
+                    Ver Triagem
                   </Link>
                 </div>
               </CardHeader>
@@ -280,9 +280,9 @@ export default async function DashboardPage() {
             <Card>
               <CardHeader className="pb-2 px-5 pt-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold text-gray-700">Leads Recentes</CardTitle>
+                  <CardTitle className="text-sm font-semibold text-gray-700">Triagem Recente</CardTitle>
                   <Link href="/leads" className="text-[11px] font-medium" style={{ color: PRIMARY }}>
-                    Ver funil
+                    Ver triagem
                   </Link>
                 </div>
               </CardHeader>
