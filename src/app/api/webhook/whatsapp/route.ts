@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/ai/lead-qualifier";
-import { transcribeAudio } from "@/lib/ai/ai-service";
+import { transcribeAudio, analyzeMediaWithAI } from "@/lib/ai/ai-service";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
 import { parseWhatsAppWebhookBody } from "./parse-payload";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
   const externalMessageId = parsed.externalMessageId;
   const messageType = parsed.messageType;
   const audioUrl = parsed.audioUrl;
+  const imageUrl = parsed.imageUrl;
+  const documentUrl = parsed.documentUrl;
+  const documentName = parsed.documentName;
 
   // ── Verifica bloqueio em massa ──────────────────────────────────────────
   const aiConfig = await prisma.aIConfig.findUnique({
@@ -44,15 +47,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 
-  // ── Transcreve áudio antes de qualquer processamento ─────────────────────
-  if (messageType === "AUDIO" && audioUrl) {
-    const openaiKey = await resolveCredential(org.id, "OPENAI_API_KEY") ?? aiConfig?.apiKey ?? null;
-    if (openaiKey) {
-      const transcription = await transcribeAudio(audioUrl, openaiKey);
-      if (transcription) {
-        messageContent = transcription;
-      }
-    }
+  // ── Transcreve áudio / analisa imagem ou documento com IA ───────────────
+  const openaiKey = await resolveCredential(org.id, "OPENAI_API_KEY") ?? aiConfig?.apiKey ?? null;
+
+  if (messageType === "AUDIO" && audioUrl && openaiKey) {
+    const transcription = await transcribeAudio(audioUrl, openaiKey);
+    if (transcription) messageContent = transcription;
+  }
+
+  if (messageType === "IMAGE" && imageUrl && openaiKey) {
+    const analysis = await analyzeMediaWithAI(imageUrl, "image", openaiKey);
+    if (analysis) messageContent = `[Imagem enviada pelo cliente]\n${analysis}`;
+  }
+
+  if (messageType === "DOCUMENT" && documentUrl && openaiKey) {
+    const analysis = await analyzeMediaWithAI(documentUrl, "document", openaiKey);
+    if (analysis) messageContent = `[Documento: ${documentName ?? "arquivo"}]\n${analysis}`;
   }
 
   // ── Busca ou cria conversa ────────────────────────────────────────────────

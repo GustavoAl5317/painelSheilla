@@ -83,8 +83,10 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Responda em português brasileiro, empático e profissional, máximo 3 frases.`
       : `\nINSTRUÇÕES OBRIGATÓRIAS:
 - Nunca forneça orientação jurídica específica ou parecer sobre o mérito do caso.
-- Colete as seguintes informações nesta ordem: nome completo, telefone, e-mail, área jurídica do problema e um breve resumo do caso.
-- Quando tiver nome + telefone + área jurídica, informe que um advogado entrará em contato em breve.
+- Colete as seguintes informações nesta ordem: nome completo, área jurídica do problema e um breve resumo do caso.
+- IMPORTANTE: Se o cliente ainda não informou o nome, pergunte o nome antes de qualquer outra coisa. Nunca assuma ou invente o nome — espere o cliente dizer.
+- Só use o nome do cliente para se dirigir a ele depois que ele mesmo tiver dito o nome na conversa.
+- Quando tiver nome + área jurídica + resumo do caso, informe que um advogado entrará em contato em breve.
 - Se o lead solicitar falar com um humano ou advogado urgente, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final da sua resposta.
 - Responda sempre em português brasileiro, de forma empática e profissional.
 - Seja conciso — máximo 3 frases por resposta.`;
@@ -112,13 +114,21 @@ async function extractQualifiedDataWithAI(
   const cpf = cpfMatch ? cpfMatch[0].replace(/\D/g, "") : undefined;
   const emailMatch = allUserText.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
 
-  const systemPrompt = `Você é um extrator de dados de conversas jurídicas. Analise o histórico e retorne APENAS um JSON válido com estes campos (omita os que não encontrar):
+  const systemPrompt = `Você é um extrator de dados de conversas jurídicas. Analise o histórico e retorne APENAS um JSON válido.
+
+REGRAS CRÍTICAS:
+- Só preencha "name" se o cliente disse o próprio nome de forma explícita e direta (ex: "me chamo Ana", "sou o Carlos", "meu nome é..."). NUNCA infira, suponha ou invente um nome.
+- Se o nome não foi dito claramente, omita o campo "name" completamente.
+- Só preencha "legalArea" se o tipo do problema jurídico ficou claro na conversa.
+- Só preencha "caseSummary" se há informações suficientes para um resumo real.
+
+Campos possíveis (omita os que não tiver certeza):
 {
-  "name": "nome completo do cliente (apenas se mencionado explicitamente)",
-  "phone": "telefone alternativo informado pelo cliente (não o número do WhatsApp dele)",
-  "legalArea": "uma das opções: Direito Trabalhista | Direito de Família | Direito Civil | Direito Criminal | Direito Previdenciário | Direito Tributário | Direito Empresarial | Direito Imobiliário | Direito do Consumidor",
-  "caseSummary": "resumo objetivo do problema jurídico em 1-2 frases",
-  "score": número de 0 a 100 representando o quanto o lead está qualificado (nome+área+resumo = 100)
+  "name": "nome exato como o cliente disse",
+  "phone": "telefone alternativo informado pelo cliente",
+  "legalArea": "Direito Trabalhista | Direito de Família | Direito Civil | Direito Criminal | Direito Previdenciário | Direito Tributário | Direito Empresarial | Direito Imobiliário | Direito do Consumidor",
+  "caseSummary": "resumo objetivo em 1-2 frases",
+  "score": número 0-100 (nome+área+resumo completos = 100)
 }
 Retorne APENAS o JSON, sem markdown.`;
 
@@ -256,6 +266,59 @@ export async function transcribeAudio(audioUrl: string, apiKey: string): Promise
     if (!res.ok) return null;
     const data = await res.json();
     return typeof data.text === "string" && data.text.trim() ? data.text.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Análise de imagem / documento com IA (visão) ────────────────────────────
+
+/**
+ * Baixa uma imagem ou PDF e envia para o GPT-4o vision analisar.
+ * Retorna uma descrição/resumo do conteúdo ou null se falhar.
+ */
+export async function analyzeMediaWithAI(
+  mediaUrl: string,
+  mediaType: "image" | "document",
+  apiKey: string,
+  systemContext?: string
+): Promise<string | null> {
+  try {
+    const response = await fetch(mediaUrl);
+    if (!response.ok) return null;
+
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const contentType = response.headers.get("content-type") ?? (mediaType === "image" ? "image/jpeg" : "application/pdf");
+
+    const systemPrompt = systemContext ??
+      "Você é um assistente jurídico. Analise o documento ou imagem enviado pelo cliente e descreva o conteúdo de forma clara e objetiva em português brasileiro. Se for um documento jurídico, identifique o tipo, partes envolvidas e pontos principais. Seja conciso.";
+
+    // PDFs precisam ser convertidos — GPT-4o aceita imagens e PDFs via base64
+    const mediaContent =
+      mediaType === "image" || contentType.startsWith("image/")
+        ? { type: "image_url", image_url: { url: `data:${contentType};base64,${base64}` } }
+        : { type: "image_url", image_url: { url: `data:${contentType};base64,${base64}` } };
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        max_tokens: 1000,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: [
+            { type: "text", text: "Analise este arquivo:" },
+            mediaContent,
+          ]},
+        ],
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() ?? null;
   } catch {
     return null;
   }

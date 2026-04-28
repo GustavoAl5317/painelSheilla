@@ -6,9 +6,12 @@
 type ParsedInbound = {
   phone: string;
   content: string;
-  messageType: "TEXT" | "IMAGE" | "AUDIO";
+  messageType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
   externalMessageId: string | null;
   audioUrl?: string;
+  imageUrl?: string;
+  documentUrl?: string;
+  documentName?: string;
 };
 
 function str(v: unknown): string | null {
@@ -86,8 +89,10 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     "";
 
   const image = body.image as { caption?: string; imageUrl?: string } | undefined;
-  if (!content && image) {
-    content = str(image.caption) ?? (image.imageUrl ? `[Imagem] ${image.imageUrl}` : "[Imagem recebida]");
+  let imageUrl: string | undefined;
+  if (image?.imageUrl) {
+    imageUrl = image.imageUrl;
+    content = str(image.caption) ?? content ?? "[Imagem recebida]";
   }
 
   const video = body.video as { caption?: string; videoUrl?: string } | undefined;
@@ -96,9 +101,12 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   }
 
   const doc = body.document as { fileName?: string; documentUrl?: string } | undefined;
-  if (!content && doc) {
-    const name = str(doc.fileName) ?? "arquivo";
-    content = doc.documentUrl ? `[Documento: ${name}] ${doc.documentUrl}` : `[Documento: ${name}]`;
+  let documentUrl: string | undefined;
+  let documentName: string | undefined;
+  if (doc?.documentUrl) {
+    documentUrl = doc.documentUrl;
+    documentName = str(doc.fileName) ?? "arquivo";
+    content = content || `[Documento: ${documentName}]`;
   }
 
   // Áudio — Z-API: body.audio.audioUrl | body.audio.pttUrl | body.pttUrl
@@ -116,15 +124,19 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "no_content" };
   }
 
-  const isImage = body.type === "image" || (!!image && !textMessage);
   const isAudio = !!(audioUrl || body.type === "audio" || body.type === "ptt");
+  const isImage = !isAudio && (body.type === "image" || !!imageUrl);
+  const isDocument = !isAudio && !isImage && (body.type === "document" || !!documentUrl);
   const externalMessageId = str(body.messageId) ?? (typeof body.id === "string" || typeof body.id === "number" ? String(body.id) : null);
 
   return {
     phone,
     content: content.trim(),
-    messageType: isAudio ? "AUDIO" : isImage ? "IMAGE" : "TEXT",
+    messageType: isAudio ? "AUDIO" : isDocument ? "DOCUMENT" : isImage ? "IMAGE" : "TEXT",
     externalMessageId,
     audioUrl,
+    imageUrl,
+    documentUrl,
+    documentName,
   };
 }
