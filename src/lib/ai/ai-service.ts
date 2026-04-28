@@ -275,54 +275,93 @@ export async function transcribeAudio(audioUrl: string, apiKey: string): Promise
   }
 }
 
-// ─── Análise de imagem / documento com IA (visão) ────────────────────────────
+// ─── Análise de imagem / documento com IA ────────────────────────────────────
 
-/**
- * Baixa uma imagem ou PDF e envia para o GPT-4o vision analisar.
- * Retorna uma descrição/resumo do conteúdo ou null se falhar.
- */
 export async function analyzeMediaWithAI(
   mediaUrl: string,
   mediaType: "image" | "document",
   apiKey: string,
-  systemContext?: string
 ): Promise<string | null> {
   try {
-    const response = await fetch(mediaUrl);
-    if (!response.ok) return null;
+    const dlRes = await fetch(mediaUrl);
+    if (!dlRes.ok) return null;
 
-    const buffer = await response.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    const contentType = response.headers.get("content-type") ?? (mediaType === "image" ? "image/jpeg" : "application/pdf");
+    const buffer = await dlRes.arrayBuffer();
+    const contentType = dlRes.headers.get("content-type") ?? "";
+    const isImage = mediaType === "image" || contentType.startsWith("image/");
 
-    const systemPrompt = systemContext ??
-      "Você é um assistente jurídico. Analise o documento ou imagem enviado pelo cliente e descreva o conteúdo de forma clara e objetiva em português brasileiro. Se for um documento jurídico, identifique o tipo, partes envolvidas e pontos principais. Seja conciso.";
+    const systemPrompt =
+      "Você é um assistente jurídico. Analise o conteúdo enviado pelo cliente e descreva de forma clara e objetiva em português brasileiro. Se for um documento jurídico, identifique o tipo, partes envolvidas e pontos principais. Seja conciso — máximo 5 frases.";
 
-    // PDFs precisam ser convertidos — GPT-4o aceita imagens e PDFs via base64
-    const mediaContent =
-      mediaType === "image" || contentType.startsWith("image/")
-        ? { type: "image_url", image_url: { url: `data:${contentType};base64,${base64}` } }
-        : { type: "image_url", image_url: { url: `data:${contentType};base64,${base64}` } };
+    if (isImage) {
+      // Imagens: base64 direto no vision
+      const base64 = Buffer.from(buffer).toString("base64");
+      const mime = contentType.startsWith("image/") ? contentType : "image/jpeg";
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          max_tokens: 1000,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: [
+              { type: "text", text: "Analise esta imagem:" },
+              { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } },
+            ]},
+          ],
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content?.trim() ?? null;
+    }
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Documentos (PDF, DOCX, etc.): upload via Files API e depois analisa com Responses API
+    const blob = new Blob([buffer], { type: contentType || "application/octet-stream" });
+    const form = new FormData();
+    form.append("file", blob, "documento.pdf");
+    form.append("purpose", "user_data");
+
+    const uploadRes = await fetch("https://api.openai.com/v1/files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+    if (!uploadRes.ok) return null;
+    const uploaded = await uploadRes.json();
+    const fileId = uploaded.id as string;
+
+    // Usa a Responses API (suporta file input)
+    const analyzeRes = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "gpt-4o",
-        max_tokens: 1000,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: [
-            { type: "text", text: "Analise este arquivo:" },
-            mediaContent,
-          ]},
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_file", file_id: fileId },
+              { type: "input_text", text: systemPrompt + "\n\nAnalise o documento acima:" },
+            ],
+          },
         ],
       }),
     });
 
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? null;
+    // Limpa o arquivo após análise (fire-and-forget)
+    fetch(`https://api.openai.com/v1/files/${fileId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    }).catch(() => {});
+
+    if (!analyzeRes.ok) return null;
+    const analyzed = await analyzeRes.json();
+    const text = analyzed.output?.find((o: any) => o.type === "message")
+      ?.content?.find((c: any) => c.type === "output_text")?.text;
+    return text?.trim() ?? null;
+
   } catch {
     return null;
   }
