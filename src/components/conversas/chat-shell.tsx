@@ -379,7 +379,7 @@ export function ChatShell() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 md:gap-4 shrink-0">
                 {/* Conversão de lead → cliente */}
                 {selected.lead && !selected.client && selected.lead.status !== "CONVERTED" && orgId && (
                   <ConvertLeadButton
@@ -441,11 +441,12 @@ export function ChatShell() {
                 <Button
                   variant={selected.isBlocked ? "outline" : "destructive"}
                   size="sm"
-                  className="h-8 text-[11px] font-bold uppercase"
+                  className="h-8 text-[10px] md:text-[11px] font-bold uppercase px-2 md:px-3"
                   disabled={togglingBlock}
                   onClick={() => void setConversationBlocked(!selected.isBlocked)}
                 >
-                  {selected.isBlocked ? "Desbloquear" : "Bloquear Contato"}
+                  <span className="hidden sm:inline">{selected.isBlocked ? "Desbloquear" : "Bloquear Contato"}</span>
+                  <span className="sm:hidden">{selected.isBlocked ? "Ativar" : "Bloquear"}</span>
                 </Button>
               </div>
             </header>

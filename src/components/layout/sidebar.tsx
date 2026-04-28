@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,6 +15,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMobileNav } from "./mobile-nav-context";
+import { X } from "lucide-react";
 
 const PRIMARY = "#95304e";
 
@@ -60,27 +63,50 @@ function NavItem({
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { isOpen, close } = useMobileNav();
+
+  // Fecha o menu mobile ao trocar de rota
+  useEffect(() => {
+    close();
+  }, [pathname, close]);
 
   return (
-    <aside
-      className="flex h-screen w-64 shrink-0 flex-col"
-      style={{ backgroundColor: PRIMARY }}
-    >
-      {/* Cabeçalho do escritório */}
-      <div className="flex flex-col items-center gap-2 px-5 py-6 border-b" style={{ borderColor: "rgba(255,255,255,0.12)" }}>
+    <>
+      {/* Overlay mobile */}
+      {isOpen && (
         <div
-          className="flex h-12 w-12 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-        >
-          <Scale className="h-6 w-6 text-white" />
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+          onClick={close}
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col transition-transform duration-300 md:static md:translate-x-0",
+          !isOpen && "-translate-x-full"
+        )}
+        style={{ backgroundColor: PRIMARY }}
+      >
+        {/* Cabeçalho do escritório */}
+        <div className="flex items-center justify-between px-5 py-6 border-b" style={{ borderColor: "rgba(255,255,255,0.12)" }}>
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-10 w-10 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-2xl"
+              style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
+            >
+              <Scale className="h-5 w-5 md:h-6 md:w-6 text-white" />
+            </div>
+            <div>
+              <p className="text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50 leading-none mb-1">
+                Sheila Araújo
+              </p>
+              <p className="text-xs md:text-sm font-bold text-white leading-tight">Advocacia</p>
+            </div>
+          </div>
+          <button onClick={close} className="md:hidden text-white/50 hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
         </div>
-        <div className="text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50 leading-none mb-1">
-            Advocacia e Consultoria
-          </p>
-          <p className="text-sm font-bold text-white leading-tight">Sheila Araújo</p>
-        </div>
-      </div>
 
       {/* Nav principal */}
       <nav className="flex flex-1 flex-col overflow-y-auto p-3 gap-0.5">
@@ -117,5 +143,6 @@ export function Sidebar() {
         ))}
       </div>
     </aside>
+    </>
   );
 }

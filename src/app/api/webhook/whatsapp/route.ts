@@ -56,26 +56,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 
-  // ── Transcreve áudio / analisa imagem ou documento com IA ───────────────
+  // ── Transcreve áudio (síncrono) / detecta mídia visual ──────────────────
   const openaiKey = await resolveCredential(org.id, "OPENAI_API_KEY") ?? aiConfig?.apiKey ?? null;
+  const hasMedia = !!(imageUrl || documentUrl);
 
   if (messageType === "AUDIO" && audioUrl && openaiKey) {
     const transcription = await transcribeAudio(audioUrl, openaiKey);
     if (transcription) messageContent = transcription;
-  }
-
-  if (messageType === "IMAGE" && imageUrl && openaiKey) {
-    console.log("[webhook] analisando imagem:", imageUrl);
-    const analysis = await analyzeMediaWithAI(imageUrl, "image", openaiKey);
-    console.log("[webhook] análise imagem:", analysis?.slice(0, 100) ?? "NULL");
-    if (analysis) messageContent = `[Imagem enviada pelo cliente]\n${analysis}`;
-  }
-
-  if (messageType === "DOCUMENT" && documentUrl && openaiKey) {
-    console.log("[webhook] analisando documento:", documentUrl);
-    const analysis = await analyzeMediaWithAI(documentUrl, "document", openaiKey);
-    console.log("[webhook] análise documento:", analysis?.slice(0, 100) ?? "NULL");
-    if (analysis) messageContent = `[Documento: ${documentName ?? "arquivo"}]\n${analysis}`;
+  } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
+    const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
+    const mediaType = messageType === "IMAGE" ? "image" : "document";
+    const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey);
+    if (analysis) {
+      messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
+    }
   }
 
   // ── Busca ou cria conversa ────────────────────────────────────────────────

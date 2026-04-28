@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, Search, User2, Scale, Users, LogOut, CheckCheck } from "lucide-react";
+import { Bell, Search, User2, Scale, Users, LogOut, CheckCheck, Menu } from "lucide-react";
+import { useMobileNav } from "./mobile-nav-context";
 import { signOut, useSession } from "next-auth/react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export function Topbar({ title }: TopbarProps) {
   const userName = session?.user?.name ?? "Usuário";
   const userRole = ROLE_LABEL[(session?.user as { role?: string } | undefined)?.role ?? ""] ?? "—";
 
+  const { toggle } = useMobileNav();
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -118,15 +120,21 @@ export function Topbar({ title }: TopbarProps) {
     (searchResults.clients.length + searchResults.processes.length + searchResults.leads.length) > 0;
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-gray-100 bg-white/95 backdrop-blur-sm px-6 shrink-0 sticky top-0 z-30">
+    <header className="flex h-16 items-center justify-between border-b border-gray-100 bg-white/95 backdrop-blur-sm px-4 md:px-6 shrink-0 sticky top-0 z-30">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">{title}</h1>
+        <button
+          onClick={toggle}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <h1 className="text-lg md:text-xl font-bold text-gray-900 tracking-tight truncate">{title}</h1>
       </div>
 
       <div className="flex items-center gap-2">
         {/* Busca global */}
-        <div ref={searchRef} className="relative">
-          <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50/80 px-3.5 py-2 w-72 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-sm focus-within:shadow-blue-100/50 transition-all">
+        <div ref={searchRef} className="relative flex-1 md:flex-none">
+          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 w-full md:w-64 lg:w-80 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-sm focus-within:shadow-blue-100/50 transition-all">
             <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
             <input
               value={searchQuery}
@@ -141,7 +149,7 @@ export function Topbar({ title }: TopbarProps) {
           </div>
 
           {searchOpen && searchQuery.length >= 2 && (
-            <div className="absolute top-full mt-2 right-0 w-96 bg-white border border-gray-200/80 rounded-2xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
+            <div className="absolute top-full mt-2 right-0 w-[calc(100vw-2rem)] md:w-96 bg-white border border-gray-200/80 rounded-2xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
               {!hasResults ? (
                 <div className="py-8 text-center">
                   <Search className="h-6 w-6 text-gray-200 mx-auto mb-2" />
@@ -226,7 +234,7 @@ export function Topbar({ title }: TopbarProps) {
           </button>
 
           {notifOpen && (
-            <div className="absolute top-full right-0 mt-2 w-96 bg-white border border-gray-200/80 rounded-2xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
+            <div className="absolute top-full right-0 mt-2 w-[calc(100vw-2rem)] md:w-96 bg-white border border-gray-200/80 rounded-2xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100">
                 <div className="flex items-center gap-2">
                   <Bell className="h-4 w-4 text-gray-500" />
