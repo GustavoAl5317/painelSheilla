@@ -32,11 +32,11 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode }
+  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold" } = options ?? {};
+  const { clientContext, leadMode = "cold", hasMedia = false } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -62,9 +62,13 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false): string {
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
+    : "";
+
+  const mediaInstruction = hasMedia
+    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos."
     : "";
 
   const instructions = clientContext
@@ -91,7 +95,7 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Responda sempre em português brasileiro, de forma empática e profissional.
 - Seja conciso — máximo 3 frases por resposta.`;
 
-  return `${base}${clientSection}${instructions}`;
+  return `${base}${clientSection}${instructions}${mediaInstruction}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────

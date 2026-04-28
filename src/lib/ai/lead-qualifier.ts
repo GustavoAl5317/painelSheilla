@@ -93,7 +93,8 @@ async function advanceLeadStage(
 export async function processIncomingMessage(
   organizationId: string,
   conversationId: string,
-  userMessage: string
+  userMessage: string,
+  hasMedia = false
 ) {
   const convInclude = {
     messages: { orderBy: { createdAt: "asc" as const }, take: 40 },
@@ -216,6 +217,7 @@ export async function processIncomingMessage(
   const result = await runAIChat(config, history, userMessage, {
     clientContext,
     leadMode,
+    hasMedia,
   });
 
   // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
