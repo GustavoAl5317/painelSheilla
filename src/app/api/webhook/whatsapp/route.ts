@@ -23,11 +23,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
+  // LOG TEMPORÁRIO — remover após diagnóstico
+  console.log("[webhook] body:", JSON.stringify(body, null, 2));
+
   const parsed = parseWhatsAppWebhookBody(body);
   if ("skip" in parsed) {
     // 200: Z-API e similares reintentam se não for sucesso — evita flood de 400 em fromMe / mídia sem texto / eventos vazios
     return NextResponse.json({ ok: true, ignored: parsed.reason });
   }
+
+  // LOG TEMPORÁRIO — remover após diagnóstico
+  console.log("[webhook] parsed:", JSON.stringify({ messageType: parsed.messageType, imageUrl: parsed.imageUrl, documentUrl: parsed.documentUrl, content: parsed.content?.slice(0, 100) }));
 
   const phoneNumber = parsed.phone;
   let messageContent = parsed.content;
