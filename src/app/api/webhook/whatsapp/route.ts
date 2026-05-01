@@ -52,7 +52,10 @@ export async function POST(req: NextRequest) {
     where: { organizationId: org.id }
   });
   const blockedList = (aiConfig as any)?.blockedNumbers;
-  if (Array.isArray(blockedList) && blockedList.some((item: any) => item.phone === phoneNumber)) {
+  if (Array.isArray(blockedList) && blockedList.some((item: any) => {
+    const p = String(item.phone || "").replace(/\D/g, "");
+    return p === phoneNumber;
+  })) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 
@@ -164,7 +167,6 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
-  const hasMedia = !!(imageUrl || documentUrl);
   const aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia);
 
   if (!aiResult) {

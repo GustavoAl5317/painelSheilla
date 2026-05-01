@@ -18,7 +18,10 @@ async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   // Verifica bloqueio em massa por número
   const blockedList = (aiConfig as any).blockedNumbers;
   if (Array.isArray(blockedList)) {
-    const isBlocked = blockedList.some((item: any) => item.phone === phoneNumber);
+    const isBlocked = blockedList.some((item: any) => {
+      const p = String(item.phone || "").replace(/\D/g, "");
+      return p === phoneNumber;
+    });
     if (isBlocked) {
       console.log(`[AI ignore] Número ${phoneNumber} está na lista de bloqueio em massa.`);
       return null;
@@ -105,6 +108,10 @@ export async function processIncomingMessage(
     include: convInclude,
   });
   if (!conversation) return null;
+  if (conversation.isBlocked) {
+    console.log(`[AI ignore] Conversa ${conversationId} está bloqueada.`);
+    return null;
+  }
 
   const config = await resolveAIConfig(organizationId, conversation.phoneNumber);
   if (!config) return null;

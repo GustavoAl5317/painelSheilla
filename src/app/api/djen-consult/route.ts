@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { fetchComunicacoesOAB, mapItemToPub } from "@/lib/djen-sync";
+import { fetchComunicacoesOAB, fetchComunicacoesPJeAuth, mapItemToPub } from "@/lib/djen-sync";
+import { resolveCredential } from "@/lib/credentials";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  oabNumero: z.string().min(1),
-  oabUf: z.string().length(2),
+  oabNumero: z.string().min(1).optional(),
+  oabUf: z.string().length(2).optional(),
   dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
@@ -30,11 +31,35 @@ export async function POST(req: NextRequest) {
 
   const { oabNumero, oabUf, dataInicio, dataFim } = parsed.data;
 
+  const [pjeLogin, pjeSenha] = await Promise.all([
+    resolveCredential(orgId, "PJE_LOGIN"),
+    resolveCredential(orgId, "PJE_SENHA"),
+  ]);
+
   let items;
-  try {
-    items = await fetchComunicacoesOAB(oabNumero, oabUf, dataInicio, dataFim);
-  } catch (err) {
-    return NextResponse.json({ error: `Erro ao consultar DJEN: ${(err as Error).message}` }, { status: 502 });
+  let source: "pje-auth" | "oab" = "oab";
+
+  if (pjeLogin && pjeSenha) {
+    try {
+      items = await fetchComunicacoesPJeAuth(pjeLogin, pjeSenha, dataInicio, dataFim);
+      source = "pje-auth";
+    } catch (err) {
+      console.warn("[djen-consult] PJe auth falhou, tentando OAB:", (err as Error).message);
+    }
+  }
+
+  if (!items) {
+    if (!oabNumero || !oabUf) {
+      return NextResponse.json(
+        { error: "Informe oabNumero + oabUf ou configure PJE_LOGIN/PJE_SENHA nas credenciais." },
+        { status: 400 }
+      );
+    }
+    try {
+      items = await fetchComunicacoesOAB(oabNumero, oabUf, dataInicio, dataFim);
+    } catch (err) {
+      return NextResponse.json({ error: `Erro ao consultar DJEN: ${(err as Error).message}` }, { status: 502 });
+    }
   }
 
   // Busca todos os clientes da org que têm CPF
@@ -69,5 +94,5 @@ export async function POST(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ ok: true, count: publications.length, publications });
+  return NextResponse.json({ ok: true, count: publications.length, source, publications });
 }

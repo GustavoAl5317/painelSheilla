@@ -6,10 +6,327 @@ datasource db {
   provider = "postgresql"
 }
 
+model Organization {
+  id                 String           @id @default(cuid())
+  name               String
+  slug               String           @unique
+  logo               String?
+  primaryColor       String           @default("#1a56db")
+  email              String
+  phone              String?
+  plan               PlanType         @default(STARTER)
+  planExpiresAt      DateTime?
+  businessHoursStart String           @default("08:00")
+  businessHoursEnd   String           @default("18:00")
+  businessDays       String           @default("1,2,3,4,5")
+  defaultGreeting    String?
+  defaultSignature   String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  aiConfig           AIConfig?
+  clients            Client[]
+  clientCaseCards    ClientCaseCard[]
+  conversations      Conversation[]
+  deadlines          Deadline[]
+  integrations       Integration[]
+  kanbanStages       KanbanStage[]
+  leads              Lead[]
+  notifications      Notification[]
+  credentials        OrgCredential[]
+  processes          Process[]
+  tasks              Task[]
+  users              User[]
+}
 
-// ─────────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────────
+model User {
+  id                String         @id @default(cuid())
+  name              String
+  email             String         @unique
+  password          String
+  role              UserRole       @default(MEMBER)
+  avatar            String?
+  isActive          Boolean        @default(true)
+  organizationId    String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  assignedLeads     Lead[]         @relation("AssignedLeads")
+  notifications     Notification[]
+  assignedProcesses Process[]      @relation("AssignedProcesses")
+  assignedTasks     Task[]         @relation("AssignedTasks")
+  createdTasks      Task[]         @relation("CreatedTasks")
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model KanbanStage {
+  id             String       @id @default(cuid())
+  name           String
+  slug           String
+  order          Int
+  color          String       @default("#6b7280")
+  isDefault      Boolean      @default(false)
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads          Lead[]
+
+  @@unique([organizationId, slug])
+}
+
+model Lead {
+  id                  String         @id @default(cuid())
+  name                String
+  phone               String?
+  email               String?
+  source              LeadSource     @default(WHATSAPP)
+  legalArea           String?
+  caseSummary         String?
+  status              LeadStatus     @default(ACTIVE)
+  organizationId      String
+  stageId             String?
+  assignedToId        String?
+  aiQualified         Boolean        @default(false)
+  aiSummary           String?
+  aiScore             Int?
+  convertedToClientAt DateTime?
+  clientId            String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  conversations       Conversation[]
+  assignedTo          User?          @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  organization        Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stage               KanbanStage?   @relation(fields: [stageId], references: [id])
+  notifications       Notification[]
+  tasks               Task[]
+}
+
+model Client {
+  id                     String          @id @default(cuid())
+  name                   String
+  phone                  String?
+  email                  String?
+  cpf                    String?
+  rg                     String?
+  address                String?
+  notes                  String?
+  tramitacaoCustomerId   Int?
+  tramitacaoCustomerUuid String?
+  tramitacaoSyncStatus   String?
+  tramitacaoSyncedAt     DateTime?
+  trelloCardId           String?
+  trelloCardUrl          String?
+  organizationId         String
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  processNumber          String?
+  organization           Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  caseCard               ClientCaseCard?
+  conversations          Conversation[]
+  processes              Process[]
+  tasks                  Task[]
+}
+
+model ClientCaseCard {
+  id             String          @id @default(cuid())
+  organizationId String
+  clientId       String          @unique
+  processId      String?
+  lastNotifiedAt DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sendUpdates    Boolean         @default(true)
+  entries        CaseCardEntry[]
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  process        Process?        @relation(fields: [processId], references: [id])
+
+  @@index([organizationId])
+  @@index([processId])
+}
+
+model CaseCardEntry {
+  id              String              @id @default(cuid())
+  cardId          String
+  source          CaseCardEntrySource
+  content         String
+  shareWithClient Boolean             @default(true)
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  card            ClientCaseCard      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
+}
+
+model Conversation {
+  id             String             @id @default(cuid())
+  phoneNumber    String
+  status         ConversationStatus @default(OPEN)
+  aiEnabled      Boolean            @default(true)
+  organizationId String
+  leadId         String?
+  clientId       String?
+  lastMessageAt  DateTime?
+  unreadCount    Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  isBlocked      Boolean            @default(false)
+  client         Client?            @relation(fields: [clientId], references: [id])
+  lead           Lead?              @relation(fields: [leadId], references: [id])
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  messages       Message[]
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  content        String
+  type           MessageType      @default(TEXT)
+  direction      MessageDirection
+  status         MessageStatus    @default(SENT)
+  conversationId String
+  externalId     String?
+  mediaUrl       String?
+  isAI           Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model Process {
+  id               String           @id @default(cuid())
+  number           String?
+  title            String?
+  court            String?
+  legalArea        String?
+  status           ProcessStatus    @default(ACTIVE)
+  observations     String?
+  organizationId   String
+  clientId         String?
+  assignedToId     String?
+  nextHearing      DateTime?
+  lastMovement     String?
+  lastMovementAt   DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  lastDjenSearchAt DateTime?
+  caseCards        ClientCaseCard[]
+  deadlines        Deadline[]
+  assignedTo       User?            @relation("AssignedProcesses", fields: [assignedToId], references: [id])
+  client           Client?          @relation(fields: [clientId], references: [id])
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tasks            Task[]
+}
+
+model Deadline {
+  id             String         @id @default(cuid())
+  title          String
+  description    String?
+  dueDate        DateTime
+  status         DeadlineStatus @default(PENDING)
+  alertSent      Boolean        @default(false)
+  organizationId String
+  processId      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  process        Process?       @relation(fields: [processId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  dueDate        DateTime?
+  organizationId String
+  assignedToId   String?
+  createdById    String?
+  leadId         String?
+  clientId       String?
+  processId      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  assignedTo     User?        @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  client         Client?      @relation(fields: [clientId], references: [id])
+  createdBy      User?        @relation("CreatedTasks", fields: [createdById], references: [id])
+  lead           Lead?        @relation(fields: [leadId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  process        Process?     @relation(fields: [processId], references: [id])
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  type           NotificationType
+  title          String
+  message        String
+  read           Boolean          @default(false)
+  organizationId String
+  userId         String?
+  leadId         String?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  lead           Lead?            @relation(fields: [leadId], references: [id])
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?            @relation(fields: [userId], references: [id])
+}
+
+model AIConfig {
+  id                      String       @id @default(cuid())
+  provider                AIProvider   @default(OPENAI)
+  useGlobalKey            Boolean      @default(true)
+  apiKey                  String?
+  model                   String       @default("gpt-4o-mini")
+  systemPrompt            String?
+  greeting                String?
+  qualificationQuestions  Json?
+  transferToHumanKeywords String[]     @default([])
+  isActive                Boolean      @default(true)
+  organizationId          String       @unique
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  blockedNumbers          Json?        @default("[]")
+  organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Integration {
+  id             String          @id @default(cuid())
+  type           IntegrationType
+  isActive       Boolean         @default(false)
+  config         Json?
+  organizationId String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type])
+}
+
+model OrgCredential {
+  id             String       @id @default(cuid())
+  key            String
+  value          String
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+}
+
+model PlanLimit {
+  id                String   @id @default(cuid())
+  plan              PlanType @unique
+  maxUsers          Int
+  maxLeadsPerMonth  Int
+  maxAIMessages     Int
+  allowIntegrations Boolean  @default(false)
+  allowCustomAIKey  Boolean  @default(false)
+  allowReports      Boolean  @default(false)
+  allowAlerts       Boolean  @default(true)
+  priceMonthly      Float
+  priceYearly       Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
 
 enum UserRole {
   OWNER
@@ -133,432 +450,4 @@ enum IntegrationType {
   EVOLUTION_API
   PJE
   TRAMITACAO_INTELIGENTE
-}
-
-// ─────────────────────────────────────────────
-// MULTI-TENANT CORE
-// ─────────────────────────────────────────────
-
-model Organization {
-  id           String    @id @default(cuid())
-  name         String
-  slug         String    @unique
-  logo         String?
-  primaryColor String    @default("#1a56db")
-  email        String
-  phone        String?
-  plan         PlanType  @default(STARTER)
-  planExpiresAt DateTime?
-
-  businessHoursStart String @default("08:00")
-  businessHoursEnd   String @default("18:00")
-  businessDays       String @default("1,2,3,4,5")
-
-  defaultGreeting  String?
-  defaultSignature String?
-
-  users         User[]
-  leads         Lead[]
-  clients       Client[]
-  processes     Process[]
-  kanbanStages  KanbanStage[]
-  conversations Conversation[]
-  integrations  Integration[]
-  aiConfig      AIConfig?
-  notifications Notification[]
-  tasks         Task[]
-  deadlines     Deadline[]
-  credentials   OrgCredential[]
-  clientCaseCards ClientCaseCard[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model User {
-  id       String   @id @default(cuid())
-  name     String
-  email    String   @unique
-  password String
-  role     UserRole @default(MEMBER)
-  avatar   String?
-  isActive Boolean  @default(true)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  assignedLeads     Lead[]         @relation("AssignedLeads")
-  assignedTasks     Task[]         @relation("AssignedTasks")
-  createdTasks      Task[]         @relation("CreatedTasks")
-  assignedProcesses Process[]      @relation("AssignedProcesses")
-  notifications     Notification[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// ─────────────────────────────────────────────
-// KANBAN
-// ─────────────────────────────────────────────
-
-model KanbanStage {
-  id        String  @id @default(cuid())
-  name      String
-  slug      String
-  order     Int
-  color     String  @default("#6b7280")
-  isDefault Boolean @default(false)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  leads          Lead[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([organizationId, slug])
-}
-
-// ─────────────────────────────────────────────
-// CRM CORE
-// ─────────────────────────────────────────────
-
-model Lead {
-  id          String     @id @default(cuid())
-  name        String
-  phone       String?
-  email       String?
-  source      LeadSource @default(WHATSAPP)
-  legalArea   String?
-  caseSummary String?
-  status      LeadStatus @default(ACTIVE)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  stageId String?
-  stage   KanbanStage? @relation(fields: [stageId], references: [id])
-
-  assignedToId String?
-  assignedTo   User?   @relation("AssignedLeads", fields: [assignedToId], references: [id])
-
-  conversations Conversation[]
-  tasks         Task[]
-  notifications Notification[]
-
-  aiQualified Boolean @default(false)
-  aiSummary   String?
-  aiScore     Int?
-
-  convertedToClientAt DateTime?
-  clientId            String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Client {
-  id            String  @id @default(cuid())
-  name          String
-  phone         String?
-  email         String?
-  cpf           String?
-  rg            String?
-  address       String?
-  notes         String?
-  processNumber String?  // número do processo para monitoramento DJEN
-
-  // Tramitação Inteligente
-  tramitacaoCustomerId   Int?
-  tramitacaoCustomerUuid String?
-  tramitacaoSyncStatus   String?   // "Sincronizado" | "Pendente" | "Erro"
-  tramitacaoSyncedAt     DateTime?
-
-  // Trello
-  trelloCardId  String?
-  trelloCardUrl String?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  processes     Process[]
-  conversations Conversation[]
-  tasks         Task[]
-  caseCard      ClientCaseCard?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// Cartão de acompanhamento: timeline + vínculo obrigatório com processo para avisar o cliente
-model ClientCaseCard {
-  id             String   @id @default(cuid())
-  organizationId String
-  clientId       String   @unique
-  processId      String?
-  sendUpdates    Boolean  @default(true)
-  lastNotifiedAt DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  client       Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  process      Process?        @relation(fields: [processId], references: [id], onDelete: SetNull)
-  entries      CaseCardEntry[]
-
-  @@index([organizationId])
-  @@index([processId])
-}
-
-model CaseCardEntry {
-  id              String              @id @default(cuid())
-  cardId          String
-  source          CaseCardEntrySource
-  content         String
-  shareWithClient Boolean             @default(true)
-  metadata        Json?
-  createdAt       DateTime            @default(now())
-
-  card ClientCaseCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
-
-  @@index([cardId, createdAt])
-}
-
-// ─────────────────────────────────────────────
-// WHATSAPP / CONVERSAS
-// ─────────────────────────────────────────────
-
-model Conversation {
-  id          String             @id @default(cuid())
-  phoneNumber String
-  status      ConversationStatus @default(OPEN)
-  aiEnabled   Boolean            @default(true)
-  isBlocked   Boolean            @default(false)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  leadId String?
-  lead   Lead?   @relation(fields: [leadId], references: [id])
-
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id])
-
-  messages Message[]
-
-  lastMessageAt DateTime?
-  unreadCount   Int       @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Message {
-  id        String           @id @default(cuid())
-  content   String
-  type      MessageType      @default(TEXT)
-  direction MessageDirection
-  status    MessageStatus    @default(SENT)
-
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  externalId String?
-  mediaUrl   String?
-  isAI       Boolean @default(false)
-
-  createdAt DateTime @default(now())
-}
-
-// ─────────────────────────────────────────────
-// PROCESSOS JURÍDICOS
-// ─────────────────────────────────────────────
-
-model Process {
-  id           String        @id @default(cuid())
-  number       String?
-  title        String?
-  court        String?
-  legalArea    String?
-  status       ProcessStatus @default(ACTIVE)
-  observations String?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
-
-  assignedToId String?
-  assignedTo   User?   @relation("AssignedProcesses", fields: [assignedToId], references: [id])
-
-  deadlines      Deadline[]
-  tasks          Task[]
-  nextHearing    DateTime?
-  lastMovement    String?
-  lastMovementAt  DateTime?
-  lastDjenSearchAt DateTime?
-  caseCards       ClientCaseCard[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Deadline {
-  id          String         @id @default(cuid())
-  title       String
-  description String?
-  dueDate     DateTime
-  status      DeadlineStatus @default(PENDING)
-  alertSent   Boolean        @default(false)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  processId String?
-  process   Process? @relation(fields: [processId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// ─────────────────────────────────────────────
-// TAREFAS
-// ─────────────────────────────────────────────
-
-model Task {
-  id          String       @id @default(cuid())
-  title       String
-  description String?
-  status      TaskStatus   @default(TODO)
-  priority    TaskPriority @default(MEDIUM)
-  dueDate     DateTime?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  assignedToId String?
-  assignedTo   User?   @relation("AssignedTasks", fields: [assignedToId], references: [id])
-
-  createdById String?
-  createdBy   User?   @relation("CreatedTasks", fields: [createdById], references: [id])
-
-  leadId    String?
-  lead      Lead?    @relation(fields: [leadId], references: [id])
-  clientId  String?
-  client    Client?  @relation(fields: [clientId], references: [id])
-  processId String?
-  process   Process? @relation(fields: [processId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// ─────────────────────────────────────────────
-// NOTIFICAÇÕES
-// ─────────────────────────────────────────────
-
-model Notification {
-  id      String           @id @default(cuid())
-  type    NotificationType
-  title   String
-  message String
-  read    Boolean          @default(false)
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id])
-
-  leadId String?
-  lead   Lead?   @relation(fields: [leadId], references: [id])
-
-  metadata Json?
-
-  createdAt DateTime @default(now())
-}
-
-// ─────────────────────────────────────────────
-// IA
-// ─────────────────────────────────────────────
-
-model AIConfig {
-  id           String     @id @default(cuid())
-  provider     AIProvider @default(OPENAI)
-  useGlobalKey Boolean    @default(true)
-  apiKey       String?
-  model        String     @default("gpt-4o-mini")
-
-  systemPrompt            String?
-  greeting                String?
-  qualificationQuestions  Json?
-  transferToHumanKeywords String[] @default([])
-  blockedNumbers          Json?    @default("[]")
-  isActive                Boolean  @default(true)
-
-  organizationId String       @unique
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// ─────────────────────────────────────────────
-// INTEGRAÇÕES (ADD-ONS)
-// ─────────────────────────────────────────────
-
-model Integration {
-  id       String          @id @default(cuid())
-  type     IntegrationType
-  isActive Boolean         @default(false)
-  config   Json?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([organizationId, type])
-}
-
-// ─────────────────────────────────────────────
-// CREDENCIAIS POR ORGANIZAÇÃO
-// ─────────────────────────────────────────────
-
-model OrgCredential {
-  id    String @id @default(cuid())
-  key   String
-  value String // armazenado criptografado com AES-256-GCM
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([organizationId, key])
-}
-
-// ─────────────────────────────────────────────
-// PLANOS E LIMITES
-// ─────────────────────────────────────────────
-
-model PlanLimit {
-  id   String   @id @default(cuid())
-  plan PlanType @unique
-
-  maxUsers          Int
-  maxLeadsPerMonth  Int
-  maxAIMessages     Int
-  allowIntegrations Boolean @default(false)
-  allowCustomAIKey  Boolean @default(false)
-  allowReports      Boolean @default(false)
-  allowAlerts       Boolean @default(true)
-  priceMonthly      Float
-  priceYearly       Float
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

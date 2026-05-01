@@ -18,7 +18,9 @@ export type CredentialKey =
   | "TRELLO_TOKEN"
   | "TRELLO_BOARD_ID"
   | "TRELLO_LIST_ID"
-  | "DJEN_OAB";
+  | "DJEN_OAB"
+  | "PJE_LOGIN"
+  | "PJE_SENHA";
 
 export interface CredentialMeta {
   key: CredentialKey;
@@ -144,6 +146,24 @@ export const CREDENTIAL_DEFINITIONS: CredentialMeta[] = [
     type: "text",
     group: "DJEN — Diário da Justiça",
     envFallback: "DJEN_OAB",
+  },
+  {
+    key: "PJE_LOGIN",
+    label: "Login PJe",
+    description: "CPF ou e-mail de acesso ao portal PJe (usado para buscar publicações autenticadas via comunicaapi.pje.jus.br).",
+    placeholder: "Ex: 000.000.000-00 ou email@oab.org.br",
+    type: "text",
+    group: "DJEN — Diário da Justiça",
+    envFallback: "PJE_LOGIN",
+  },
+  {
+    key: "PJE_SENHA",
+    label: "Senha PJe",
+    description: "Senha de acesso ao portal PJe.",
+    placeholder: "Sua senha do PJe",
+    type: "password",
+    group: "DJEN — Diário da Justiça",
+    envFallback: "PJE_SENHA",
   },
   {
     key: "TRELLO_KEY",

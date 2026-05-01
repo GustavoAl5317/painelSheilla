@@ -64,7 +64,11 @@ export async function POST(
 
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId: orgId } });
   const blockedList = (aiConfig as any)?.blockedNumbers;
-  if (Array.isArray(blockedList) && blockedList.some((item: any) => item.phone === conversation.phoneNumber)) {
+  if (Array.isArray(blockedList) && blockedList.some((item: any) => {
+    const p = String(item.phone || "").replace(/\D/g, "");
+    const convP = conversation.phoneNumber.replace(/\D/g, "");
+    return p === convP;
+  })) {
     return NextResponse.json({ error: "Contato bloqueado" }, { status: 403 });
   }
 
