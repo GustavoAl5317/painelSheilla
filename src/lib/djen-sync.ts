@@ -145,8 +145,12 @@ export async function fetchComunicacoesOAB(
 
     const res = await fetch(url.toString(), {
       headers: {
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+        "Connection": "keep-alive",
+        "Origin": "https://comunica.pje.jus.br",
+        "Referer": "https://comunica.pje.jus.br/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
       },
     });
 
