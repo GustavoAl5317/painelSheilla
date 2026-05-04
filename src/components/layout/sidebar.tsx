@@ -11,8 +11,10 @@ import {
   Plug,
   Scale,
   Newspaper,
-  CheckSquare,
+  CalendarDays,
   ChevronRight,
+  KanbanSquare,
+  BrainCircuit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMobileNav } from "./mobile-nav-context";
@@ -23,11 +25,13 @@ const PRIMARY = "#95304e";
 const mainNav = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Triagem", href: "/leads", icon: Users },
+  { label: "CRM", href: "/crm", icon: KanbanSquare },
   { label: "Conversas", href: "/conversas", icon: MessageSquare },
   { label: "Clientes", href: "/clientes", icon: Briefcase },
   { label: "Processos", href: "/processos", icon: Scale },
   { label: "Consulta DJEN", href: "/djen", icon: Newspaper },
-  { label: "Tarefas", href: "/tarefas", icon: CheckSquare },
+  { label: "Agenda", href: "/agenda", icon: CalendarDays },
+  { label: "Prompts", href: "/prompts", icon: BrainCircuit },
 ];
 
 const bottomNav = [

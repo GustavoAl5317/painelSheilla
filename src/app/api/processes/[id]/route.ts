@@ -33,12 +33,40 @@ export async function PATCH(
   }
 
   try {
-    const process = await prisma.process.update({
-      where: { id, organizationId: orgId },
-      data: {
-        ...parsed.data,
-        nextHearing: parsed.data.nextHearing ? new Date(parsed.data.nextHearing) : (parsed.data.nextHearing === null ? null : undefined),
-      },
+    const [process] = await prisma.$transaction(async (tx) => {
+      const updated = await tx.process.update({
+        where: { id, organizationId: orgId },
+        data: {
+          ...parsed.data,
+          nextHearing: parsed.data.nextHearing ? new Date(parsed.data.nextHearing) : (parsed.data.nextHearing === null ? null : undefined),
+        },
+      });
+
+      if ("clientId" in parsed.data) {
+        const newClientId = parsed.data.clientId;
+
+        if (newClientId) {
+          // Desvincula qualquer card antigo que aponte para este processo
+          await tx.clientCaseCard.updateMany({
+            where: { processId: id, clientId: { not: newClientId } },
+            data: { processId: null },
+          });
+          // Vincula (ou cria) o card do novo cliente
+          await tx.clientCaseCard.upsert({
+            where: { clientId: newClientId },
+            create: { organizationId: orgId, clientId: newClientId, processId: id },
+            update: { processId: id },
+          });
+        } else {
+          // clientId removido: limpa processId de todos os cards vinculados
+          await tx.clientCaseCard.updateMany({
+            where: { processId: id },
+            data: { processId: null },
+          });
+        }
+      }
+
+      return [updated];
     });
 
     return NextResponse.json({ data: process });

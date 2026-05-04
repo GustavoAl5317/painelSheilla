@@ -80,7 +80,7 @@ export function DjenConsultPage({ processos }: Props) {
   const [oabUf, setOabUf] = useState("SP");
   const [dataInicio, setDataInicio] = useState(() => {
     const d = new Date();
-    d.setMonth(d.getMonth() - 3);
+    d.setDate(d.getDate() - 7);
     return d.toISOString().slice(0, 10);
   });
   const [dataFim, setDataFim] = useState(() => new Date().toISOString().slice(0, 10));
@@ -383,8 +383,22 @@ export function DjenConsultPage({ processos }: Props) {
         </Button>
 
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-            {error}
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 space-y-2">
+            <p className="text-sm font-medium text-red-700">{error}</p>
+            {error.includes("limite") || error.includes("429") || error.includes("bloqueando") ? (
+              <div className="text-xs text-red-500 space-y-1.5 mt-1">
+                <p>A API do PJe tem limite de 20 requisições por janela. Períodos longos consomem várias páginas de uma vez.</p>
+                <p className="font-medium">O que fazer:</p>
+                <p>• Reduza o período para <strong>7 dias</strong> ou menos e tente novamente</p>
+                <p>• Aguarde <strong>1–2 minutos</strong> para o limite ser liberado</p>
+                <button
+                  onClick={consultar}
+                  className="mt-1 flex items-center gap-1.5 text-xs font-medium text-red-700 underline hover:text-red-900"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 

@@ -27,7 +27,9 @@ model Organization {
   clients            Client[]
   clientCaseCards    ClientCaseCard[]
   conversations      Conversation[]
+  crmBoards          CrmBoard[]
   deadlines          Deadline[]
+  promptTemplates    PromptTemplate[]
   integrations       Integration[]
   kanbanStages       KanbanStage[]
   leads              Lead[]
@@ -35,6 +37,7 @@ model Organization {
   credentials        OrgCredential[]
   processes          Process[]
   tasks              Task[]
+  appointments       Appointment[]
   users              User[]
 }
 
@@ -49,12 +52,14 @@ model User {
   organizationId    String
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
-  assignedLeads     Lead[]         @relation("AssignedLeads")
-  notifications     Notification[]
-  assignedProcesses Process[]      @relation("AssignedProcesses")
-  assignedTasks     Task[]         @relation("AssignedTasks")
-  createdTasks      Task[]         @relation("CreatedTasks")
-  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedLeads        Lead[]            @relation("AssignedLeads")
+  notifications        Notification[]
+  assignedProcesses    Process[]         @relation("AssignedProcesses")
+  assignedTasks        Task[]            @relation("AssignedTasks")
+  createdTasks         Task[]            @relation("CreatedTasks")
+  createdAppointments  Appointment[]     @relation("CreatedAppointments")
+  crmActivities        CrmCardActivity[]
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model KanbanStage {
@@ -98,6 +103,7 @@ model Lead {
   stage               KanbanStage?   @relation(fields: [stageId], references: [id])
   notifications       Notification[]
   tasks               Task[]
+  appointments        Appointment[]
 }
 
 model Client {
@@ -122,8 +128,12 @@ model Client {
   organization           Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   caseCard               ClientCaseCard?
   conversations          Conversation[]
+  crmCards               CrmCard[]
   processes              Process[]
   tasks                  Task[]
+  appointments           Appointment[]
+
+  @@index([organizationId])
 }
 
 model ClientCaseCard {
@@ -208,11 +218,16 @@ model Process {
   updatedAt        DateTime         @updatedAt
   lastDjenSearchAt DateTime?
   caseCards        ClientCaseCard[]
+  crmCards         CrmCard[]
   deadlines        Deadline[]
   assignedTo       User?            @relation("AssignedProcesses", fields: [assignedToId], references: [id])
   client           Client?          @relation(fields: [clientId], references: [id])
   organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   tasks            Task[]
+  appointments     Appointment[]
+
+  @@index([organizationId])
+  @@index([clientId])
 }
 
 model Deadline {
@@ -251,6 +266,34 @@ model Task {
   lead           Lead?        @relation(fields: [leadId], references: [id])
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   process        Process?     @relation(fields: [processId], references: [id])
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  title           String
+  description     String?
+  date            DateTime
+  durationMinutes Int               @default(60)
+  status          AppointmentStatus @default(SCHEDULED)
+  notifyClient    Boolean           @default(true)
+  reminderSent    Boolean           @default(false)
+  organizationId  String
+  clientId        String?
+  leadId          String?
+  guestName       String?
+  processId       String?
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client          Client?           @relation(fields: [clientId], references: [id])
+  lead            Lead?             @relation(fields: [leadId], references: [id])
+  process         Process?          @relation(fields: [processId], references: [id])
+  createdBy       User?             @relation("CreatedAppointments", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([leadId])
 }
 
 model Notification {
@@ -439,6 +482,92 @@ enum AIProvider {
   OPENAI
   ANTHROPIC
   CUSTOM
+}
+
+// ─── Prompt Templates ─────────────────────────────────────────────────────────
+
+model PromptTemplate {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  content        String
+  isDefault      Boolean      @default(false)
+  isSystem       Boolean      @default(false)
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ─── CRM ──────────────────────────────────────────────────────────────────────
+
+model CrmBoard {
+  id             String      @id @default(cuid())
+  name           String
+  slug           String
+  color          String      @default("#6b7280")
+  order          Int
+  organizationId String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cards          CrmCard[]
+
+  @@unique([organizationId, slug])
+}
+
+model CrmCard {
+  id             String            @id @default(cuid())
+  title          String
+  description    String?
+  boardId        String
+  organizationId String
+  processId      String?
+  clientId       String?
+  order          Int               @default(0)
+  dueDate        DateTime?
+  priority       CrmPriority       @default(NONE)
+  tags           String[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  board          CrmBoard          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  process        Process?          @relation(fields: [processId], references: [id], onDelete: SetNull)
+  client         Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  activities     CrmCardActivity[]
+
+  @@index([boardId])
+  @@index([processId])
+  @@index([clientId])
+}
+
+model CrmCardActivity {
+  id        String   @id @default(cuid())
+  cardId    String
+  userId    String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  card      CrmCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([cardId, createdAt])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum CrmPriority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }
 
 enum IntegrationType {

@@ -122,38 +122,21 @@ export async function fetchComunicacoesPJeAuth(
   return all.map(pjeCommToApiItem);
 }
 
-async function fetchSessionCookies(): Promise<string> {
-  const res = await fetch("https://comunicacao.pje.jus.br/", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "pt-BR,pt;q=0.9",
-    },
-    redirect: "follow",
-  });
-
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const cookies: string[] = [];
-  for (const part of setCookie.split(/,(?=[^ ])/)) {
-    const kv = part.trim().split(";")[0];
-    if (kv) cookies.push(kv);
-  }
-  return cookies.join("; ");
-}
-
 export async function fetchComunicacoesOAB(
   numero: string,
   uf: string,
   dataInicio: string,
   dataFim: string
 ): Promise<ComunicacaoAPIItem[]> {
-  const cookies = await fetchSessionCookies();
-
   const all: ComunicacaoAPIItem[] = [];
+  // Tamanho máximo por página reduz o número total de requisições
   const size = 100;
   let page = 0;
 
   for (;;) {
+    // Pausa entre páginas para não esgotar o rate limit (20 req/janela)
+    if (page > 0) await new Promise(r => setTimeout(r, 1500));
+
     const url = new URL(COMUNICA_API);
     url.searchParams.set("numeroOab", numero);
     if (uf) url.searchParams.set("ufOab", uf);
@@ -164,13 +147,9 @@ export async function fetchComunicacoesOAB(
       headers: {
         "Accept": "application/json",
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
-        "Cookie": cookies,
-        "Referer": "https://comunicacao.pje.jus.br/",
-        "sec-fetch-site": "same-site",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-dest": "empty",
       },
     });
+
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`);
@@ -193,7 +172,7 @@ export async function fetchComunicacoesOAB(
     all.push(...filtered);
 
     if (data.items.length < size) break;
-    // Se os itens mais antigos da página já estão antes do intervalo, para
+    // Para se os itens mais antigos da página já estão antes do intervalo
     const oldest = (data.items[data.items.length - 1]?.data_disponibilizacao ?? "").slice(0, 10);
     if (oldest && oldest < dataInicio) break;
     page += 1;

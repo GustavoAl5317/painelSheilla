@@ -99,6 +99,17 @@ export default async function DashboardPage() {
       href: "/conversas",
       urgent: false,
     },
+    {
+      label: "Atendimentos Hoje",
+      value: data.contactsAttendedToday,
+      sub: "Zera diariamente",
+      icon: Users,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+      border: "border-blue-200",
+      href: "/conversas",
+      urgent: false,
+    },
   ];
 
   return (
@@ -152,8 +163,8 @@ export default async function DashboardPage() {
 
           {/* Alertas operacionais */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Alertas do dia</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Acompanhamento Diário</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {alertCards.map((card) => {
                 const Icon = card.icon;
                 return (
@@ -172,7 +183,12 @@ export default async function DashboardPage() {
                       <p className={cn("text-xl font-bold", card.urgent && card.value > 0 ? card.color : "text-gray-900")}>
                         {card.value}
                       </p>
-                      <p className="text-[10px] font-medium text-gray-500 leading-tight">{card.label}</p>
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 leading-tight">{card.label}</p>
+                        {"sub" in card && (
+                          <p className="text-[9px] text-gray-400 mt-0.5">{card.sub}</p>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 );

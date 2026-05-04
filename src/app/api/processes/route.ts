@@ -68,5 +68,14 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // Vincula automaticamente o ClientCaseCard ao processo recém-criado
+  if (parsed.data.clientId) {
+    await prisma.clientCaseCard.upsert({
+      where: { clientId: parsed.data.clientId },
+      create: { organizationId: orgId!, clientId: parsed.data.clientId, processId: process.id },
+      update: { processId: process.id },
+    });
+  }
+
   return NextResponse.json({ data: process }, { status: 201 });
 }

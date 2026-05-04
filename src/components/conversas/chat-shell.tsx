@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { Bot, Send, Search, MessageSquare, ChevronLeft, Loader2, UserCheck, ExternalLink, RefreshCcw } from "lucide-react";
+import { Bot, Send, Search, MessageSquare, ChevronLeft, Loader2, UserCheck, ExternalLink, RefreshCcw, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ConvertLeadButton } from "@/components/kanban/convert-lead-button";
+import { AgendaModalChat } from "@/components/agenda/agenda-modal-chat";
 import type { Conversation, Lead, Message as PrismaMessage } from "@prisma/client";
 
 type ConvRow = Conversation & {
@@ -55,6 +56,7 @@ export function ChatShell() {
   const [togglingAi, setTogglingAi] = useState(false);
   const [togglingBlock, setTogglingBlock] = useState(false);
   const [orgId, setOrgId] = useState<string>("");
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -401,6 +403,16 @@ export function ChatShell() {
                   </Link>
                 )}
 
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-[11px] font-semibold gap-1.5 shrink-0 border-blue-200 text-blue-600 hover:bg-blue-50"
+                  onClick={() => setAgendaOpen(true)}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Marcar Agenda</span>
+                </Button>
+
                 <div className="flex items-center gap-3 shrink-0">
                   <Button
                     variant="ghost"
@@ -513,6 +525,12 @@ export function ChatShell() {
           </div>
         )
       )}
+      <AgendaModalChat
+        open={agendaOpen}
+        onClose={() => setAgendaOpen(false)}
+        clientId={selected?.client?.id}
+        clientName={selected?.client?.name}
+      />
     </div>
   );
 }

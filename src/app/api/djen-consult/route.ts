@@ -58,7 +58,15 @@ export async function POST(req: NextRequest) {
     try {
       items = await fetchComunicacoesOAB(oabNumero, oabUf, dataInicio, dataFim);
     } catch (err) {
-      return NextResponse.json({ error: `Erro ao consultar DJEN: ${(err as Error).message}` }, { status: 502 });
+      console.error("[djen-consult] fetchComunicacoesOAB error:", err);
+      const msg = (err as Error).message;
+      if (msg.includes("429")) {
+        return NextResponse.json(
+          { error: "O servidor do PJe está temporariamente bloqueando as consultas (limite de requisições atingido). Aguarde alguns minutos e tente novamente." },
+          { status: 429 }
+        );
+      }
+      return NextResponse.json({ error: `Erro ao consultar DJEN: ${msg}` }, { status: 502 });
     }
   }
 

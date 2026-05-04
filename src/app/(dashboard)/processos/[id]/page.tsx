@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Scale, Calendar, CheckSquare, ChevronLeft, User, FileText } from "lucide-react";
 import { ProcessDetailTabs } from "@/components/processos/process-detail-tabs";
+import { ProcessCrmCards } from "@/components/processos/process-crm-cards";
 import { getInitials, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { EditProcessButton } from "@/components/processos/edit-process-button";
@@ -141,6 +142,9 @@ export default async function ProcessoDetailPage({ params }: { params: Promise<{
             )}
           </CardContent>
         </Card>
+
+        {/* ── Cards CRM vinculados ── */}
+        <ProcessCrmCards processId={proc.id} />
 
         {/* ── Abas: Card do processo / Consulta DJEN ── */}
         <ProcessDetailTabs

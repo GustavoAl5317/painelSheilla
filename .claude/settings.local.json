@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:comunicaapi.pje.jus.br)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npx prisma *)",
+      "Bash(npx next *)",
+      "Bash(node -e \"const { PrismaClient } = require\\('./node_modules/@prisma/client'\\); const p = new PrismaClient\\(\\); console.log\\('crmBoard' in p ? 'OK' : 'MISSING'\\);\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroOab=123456&ufOab=SP&page=0&size=1\")",
+      "Bash(curl -s -i \"https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroOab=123456&ufOab=SP&page=0&size=1\" -H \"Accept: application/json\")",
+      "Bash(Remove-Item -Recurse -Force .next)",
+      "Bash(rm -rf .next)",
+      "Bash(ls .next)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",
+      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\prompts",
+      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\appointments"
     ]
   }
 }

@@ -34,11 +34,18 @@ async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const apiKey = orgApiKey ?? aiConfig.apiKey ?? "";
   if (!apiKey) return null;
 
+  // Usa o PromptTemplate marcado como padrão, com fallback para aiConfig.systemPrompt
+  const defaultTemplate = await prisma.promptTemplate.findFirst({
+    where: { organizationId, isDefault: true },
+    select: { content: true },
+  });
+  const systemPrompt = defaultTemplate?.content ?? aiConfig.systemPrompt ?? "";
+
   return {
     apiKey,
     model: aiConfig.model,
     provider,
-    systemPrompt: aiConfig.systemPrompt ?? "",
+    systemPrompt,
     transferKeywords: aiConfig.transferToHumanKeywords ?? [],
   };
 }
