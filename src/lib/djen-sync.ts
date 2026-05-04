@@ -144,6 +144,7 @@ export async function fetchComunicacoesOAB(
     url.searchParams.set("size", String(size));
 
     const res = await fetch(url.toString(), {
+      cache: "no-store",
       headers: {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "pt-BR,pt;q=0.9",
