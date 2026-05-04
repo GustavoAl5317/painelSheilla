@@ -143,16 +143,32 @@ export async function fetchComunicacoesOAB(
     url.searchParams.set("page", String(page));
     url.searchParams.set("size", String(size));
 
-    const res = await fetch(url.toString(), {
-      cache: "no-store",
-      headers: {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "pt-BR,pt;q=0.9",
-        "Connection": "keep-alive",
-        "Origin": "https://comunica.pje.jus.br",
-        "Referer": "https://comunica.pje.jus.br/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      },
+    const res = await new Promise<{ status: number, ok: boolean, text: () => Promise<string>, json: () => Promise<any> }>((resolve, reject) => {
+      const https = require("https");
+      const req = https.request(url.toString(), {
+        method: "GET",
+        headers: {
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "pt-BR,pt;q=0.9",
+          "Connection": "keep-alive",
+          "Origin": "https://comunica.pje.jus.br",
+          "Referer": "https://comunica.pje.jus.br/",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        }
+      }, (response: any) => {
+        let body = "";
+        response.on("data", (chunk: any) => body += chunk);
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode,
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            text: async () => body,
+            json: async () => JSON.parse(body)
+          });
+        });
+      });
+      req.on("error", reject);
+      req.end();
     });
 
     if (!res.ok) {
