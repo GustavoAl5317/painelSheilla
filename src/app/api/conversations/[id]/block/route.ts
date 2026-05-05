@@ -20,11 +20,48 @@ export async function PATCH(
 
   const existing = await prisma.conversation.findFirst({
     where: { id, organizationId: orgId },
-    select: { id: true },
+    select: { id: true, phoneNumber: true },
   });
   
   if (!existing) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+  }
+
+  // Atualiza também a lista global de números bloqueados em AIConfig
+  const aiConfig = await prisma.aIConfig.findUnique({
+    where: { organizationId: orgId },
+  });
+
+  if (aiConfig) {
+    let blockedNumbers = Array.isArray(aiConfig.blockedNumbers) 
+      ? [...(aiConfig.blockedNumbers as any[])] 
+      : [];
+    
+    let updated = false;
+    
+    if (blocked) {
+      // Adiciona se não existir
+      if (!blockedNumbers.some(item => String(item.phone || "").replace(/\D/g, "") === existing.phoneNumber)) {
+        blockedNumbers.push({ phone: existing.phoneNumber, name: "Bloqueado via Chat" });
+        updated = true;
+      }
+    } else {
+      // Remove se existir
+      const originalLength = blockedNumbers.length;
+      blockedNumbers = blockedNumbers.filter(
+        item => String(item.phone || "").replace(/\D/g, "") !== existing.phoneNumber
+      );
+      if (blockedNumbers.length !== originalLength) {
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      await prisma.aIConfig.update({
+        where: { id: aiConfig.id },
+        data: { blockedNumbers },
+      });
+    }
   }
 
   const conversation = await prisma.conversation.update({

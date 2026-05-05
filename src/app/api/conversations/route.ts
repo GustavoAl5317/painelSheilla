@@ -37,7 +37,7 @@ export async function GET() {
     .filter(c => c.phoneNumber.length <= 15)
     .map(c => {
     const blockItem = Array.isArray(blockedList) 
-      ? (blockedList as any[]).find((item: any) => item.phone === c.phoneNumber)
+      ? (blockedList as any[]).find((item: any) => String(item.phone || "").replace(/\D/g, "") === c.phoneNumber)
       : null;
     
     return {

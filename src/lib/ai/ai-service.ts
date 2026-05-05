@@ -84,11 +84,11 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Esta pessoa **já está em contato** com o escritório; pode haver histórico de mensagens acima. **Não** inicie um cadastro forçado como se fosse a primeira conversa.
 - Responda educadamente ao que ela perguntou sem reiniciar a triagem do zero, a não ser que faltem dados essenciais.
 - Nunca prometa resultado, parecer jurídico definitivo, horário, data ou valores. Se precisar de dado concreto que não está no histórico, diga que a equipe retornará pelo WhatsApp e use [TRANSFERIR_PARA_HUMANO] se for urgente.
-- Se o caso não for Trabalhista, Acidente de Trabalho ou Previdenciário/INSS, informe educadamente que o escritório não atua nessa área.
+- O escritório atua EXCLUSIVAMENTE com Direito Previdenciário, Trabalhista e Acidente de Trabalho. Se o assunto for de outra área (Cível, Família, Criminal, etc.), informe educadamente que o escritório não atua nessa área.
 - Responda em português brasileiro, empático e profissional, máximo 3 frases.`
       : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — lead frio):
 - Nunca forneça orientação jurídica específica ou parecer sobre o mérito do caso.
-- Se o assunto NÃO for Trabalhista, Acidente de Trabalho ou Previdenciário/INSS, informe que o escritório não atua nessa área e oriente a procurar profissional especializado. Não prossiga com triagem.
+- O escritório atua EXCLUSIVAMENTE com Direito Previdenciário, Trabalhista e Acidente de Trabalho. Se o assunto NÃO for um destes, informe imediatamente que o escritório não atua nessa área e oriente a procurar profissional especializado. Não prossiga com triagem.
 - Colete as seguintes informações nesta ordem: nome completo, motivo do contato, área do problema e um breve resumo.
 - Se o cliente ainda não informou o nome, pergunte o nome antes de qualquer outra coisa. Nunca assuma ou invente o nome.
 - Nunca marque consultas, reuniões, ligações ou confirme horários. Diga que a equipe jurídica retornará pelo WhatsApp.
@@ -133,7 +133,7 @@ Campos possíveis (omita os que não tiver certeza):
 {
   "name": "nome exato como o cliente disse",
   "phone": "telefone alternativo informado pelo cliente",
-  "legalArea": "Direito Trabalhista | Direito de Família | Direito Civil | Direito Criminal | Direito Previdenciário | Direito Tributário | Direito Empresarial | Direito Imobiliário | Direito do Consumidor",
+  "legalArea": "Direito Trabalhista | Direito Previdenciário | Acidente de Trabalho",
   "caseSummary": "resumo objetivo em 1-2 frases",
   "score": número 0-100 (nome+área+resumo completos = 100)
 }
