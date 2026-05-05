@@ -29,10 +29,9 @@ export async function PATCH(
 
   const conversation = await prisma.conversation.update({
     where: { id },
-    data: { 
+    data: {
       isBlocked: blocked,
-      // Se bloquear, automaticamente desativa a IA também para garantir
-      aiEnabled: blocked ? false : undefined,
+      aiEnabled: blocked ? false : true,
     },
     select: { id: true, isBlocked: true, aiEnabled: true },
   });

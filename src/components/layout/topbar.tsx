@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, Search, User2, Scale, Users, LogOut, CheckCheck, Menu } from "lucide-react";
+import { Bell, Search, User2, Scale, Users, LogOut, CheckCheck, Menu, BotOff, Bot } from "lucide-react";
 import { useMobileNav } from "./mobile-nav-context";
 import { signOut, useSession } from "next-auth/react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -49,6 +49,8 @@ export function Topbar({ title }: TopbarProps) {
   const userRole = ROLE_LABEL[(session?.user as { role?: string } | undefined)?.role ?? ""] ?? "—";
 
   const { toggle } = useMobileNav();
+  const [aiActive, setAiActive] = useState<boolean | null>(null);
+  const [aiToggling, setAiToggling] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,6 +58,27 @@ export function Topbar({ title }: TopbarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/ai-config", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => { if (j?.data) setAiActive(j.data.isActive ?? true); })
+      .catch(() => {});
+  }, []);
+
+  const toggleAi = async () => {
+    if (aiToggling || aiActive === null) return;
+    setAiToggling(true);
+    const next = !aiActive;
+    setAiActive(next);
+    await fetch("/api/ai-config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ isActive: next }),
+    }).catch(() => setAiActive(!next));
+    setAiToggling(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +236,24 @@ export function Topbar({ title }: TopbarProps) {
             </div>
           )}
         </div>
+
+        {/* Toggle IA global */}
+        {aiActive !== null && (
+          <button
+            onClick={toggleAi}
+            disabled={aiToggling}
+            title={aiActive ? "IA ativa — clique para pausar" : "IA pausada — clique para reativar"}
+            className={cn(
+              "relative flex items-center gap-1.5 h-9 px-3 rounded-xl border text-xs font-semibold transition-all",
+              aiActive
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100 animate-pulse"
+            )}
+          >
+            {aiActive ? <Bot className="h-3.5 w-3.5" /> : <BotOff className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{aiActive ? "IA ativa" : "IA pausada"}</span>
+          </button>
+        )}
 
         {/* Notificações */}
         <div ref={notifRef} className="relative">

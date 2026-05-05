@@ -60,6 +60,7 @@ export function ChatShell() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const togglingBlockRef = useRef(false);
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -92,8 +93,9 @@ export function ChatShell() {
     }
   };
 
-  // Mantém ref atualizada para uso dentro dos closures de polling
+  // Mantém refs atualizadas para uso dentro dos closures de polling
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { togglingBlockRef.current = togglingBlock; }, [togglingBlock]);
 
   // Polling automático: atualiza lista de conversas a cada 5s e mensagens da conversa aberta a cada 3s
   useEffect(() => {
@@ -105,13 +107,18 @@ export function ChatShell() {
         const fresh: ConvRow[] = (j.data ?? []).filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => t.id === v.id) === i);
         if (j.organizationId) setOrgId(j.organizationId);
         setList((prev) => {
-          // Mantém mensagens já carregadas da conversa aberta para não perder histórico local
           return fresh.map((c) => {
             const existing = prev.find((p) => p.id === c.id);
-            if (existing && existing.messages?.length > (c.messages?.length ?? 0)) {
-              return { ...c, messages: existing.messages };
-            }
-            return c;
+            if (!existing) return c;
+            return {
+              ...c,
+              // Preserva mensagens locais se tiver mais do que o servidor retornou
+              messages: existing.messages?.length > (c.messages?.length ?? 0)
+                ? existing.messages
+                : c.messages,
+              // Preserva isBlocked local enquanto toggle está em progresso para evitar flickering
+              isBlocked: togglingBlockRef.current && c.id === selectedIdRef.current ? existing.isBlocked : c.isBlocked,
+            };
           });
         });
       } catch {}

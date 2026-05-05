@@ -8,6 +8,7 @@ type ParsedInbound = {
   content: string;
   messageType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
   externalMessageId: string | null;
+  fromMe?: boolean;
   audioUrl?: string;
   imageUrl?: string;
   documentUrl?: string;
@@ -22,20 +23,22 @@ function str(v: unknown): string | null {
 }
 
 export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedInbound | { skip: true; reason: string } {
-  // Z-API: eco de mensagem enviada pelo próprio número — evita loops
+  // Eventos de status (entrega, leitura) — nunca são mensagens de conteúdo
   if (
+    body.type === "DeliveredCallback" ||
+    body.type === "ReadCallback" ||
+    body.type === "MessageStatusCallback"
+  ) {
+    return { skip: true, reason: "status_event" };
+  }
+
+  const fromMe =
     body.fromMe === true ||
     body.isFromMe === true ||
     body.direction === "out" ||
     body.direction === "OUTBOUND" ||
     body.status === "SENT" ||
-    body.type === "sent" ||
-    body.type === "DeliveredCallback" ||
-    body.type === "ReadCallback" ||
-    body.type === "MessageStatusCallback"
-  ) {
-    return { skip: true, reason: "fromMe" };
-  }
+    body.type === "sent";
 
   const rawPhone =
     str(body.phone) ??
@@ -135,6 +138,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     content: content.trim(),
     messageType: isAudio ? "AUDIO" : isDocument ? "DOCUMENT" : isImage ? "IMAGE" : "TEXT",
     externalMessageId,
+    fromMe,
     audioUrl,
     imageUrl,
     documentUrl,

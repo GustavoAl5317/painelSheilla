@@ -36,7 +36,37 @@ export async function POST(req: NextRequest) {
   }
 
   // LOG TEMPORÁRIO — remover após diagnóstico
-  console.log("[webhook] parsed:", JSON.stringify({ messageType: parsed.messageType, imageUrl: parsed.imageUrl, documentUrl: parsed.documentUrl, content: parsed.content?.slice(0, 100) }));
+  console.log("[webhook] parsed:", JSON.stringify({ messageType: parsed.messageType, imageUrl: parsed.imageUrl, documentUrl: parsed.documentUrl, content: parsed.content?.slice(0, 100), fromMe: parsed.fromMe }));
+
+  // ── Busca configuração de IA (necessária para comandos do operador e bloqueios) ──
+  const aiConfig = await prisma.aIConfig.findUnique({
+    where: { organizationId: org.id },
+  });
+
+  // ── Comandos do operador (mensagens enviadas pelo advogado) ──────────────────
+  if (parsed.fromMe) {
+    const cmd = parsed.content.trim();
+    const isStopCmd = cmd === "#";
+    const isResumeCmd = cmd === ".";
+    const operatorKw = (aiConfig as any)?.operatorKeyword?.trim();
+    const isOperatorKw = operatorKw && cmd.toLowerCase() === operatorKw.toLowerCase();
+
+    if (isStopCmd || isResumeCmd || isOperatorKw) {
+      const conversation = await prisma.conversation.findFirst({
+        where: { phoneNumber: parsed.phone, organizationId: org.id },
+        select: { id: true },
+      });
+      if (conversation) {
+        const enableAi = isResumeCmd;
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { aiEnabled: enableAi },
+        });
+        console.log(`[webhook] operador comando="${cmd}" → aiEnabled=${enableAi} (conv=${conversation.id})`);
+      }
+    }
+    return NextResponse.json({ ok: true, ignored: "fromMe" });
+  }
 
   const phoneNumber = parsed.phone;
   let messageContent = parsed.content;
@@ -48,9 +78,6 @@ export async function POST(req: NextRequest) {
   const documentName = parsed.documentName;
 
   // ── Verifica bloqueio em massa ──────────────────────────────────────────
-  const aiConfig = await prisma.aIConfig.findUnique({
-    where: { organizationId: org.id }
-  });
   const blockedList = (aiConfig as any)?.blockedNumbers;
   if (Array.isArray(blockedList) && blockedList.some((item: any) => {
     const p = String(item.phone || "").replace(/\D/g, "");

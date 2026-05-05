@@ -1,17 +1,29 @@
 "use client";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Scale, User, MessageSquare, Calendar, AlertCircle } from "lucide-react";
+import { Scale, User, MessageSquare, Calendar, AlertCircle, Clock } from "lucide-react";
 import { cn, isDeadlineOverdue, isDeadlineUrgent } from "@/lib/utils";
 import type { CrmCardData, CrmPriority } from "./types";
 
-const PRIORITY_CONFIG: Record<CrmPriority, { label: string; className: string } | null> = {
+const PRIORITY_CONFIG: Record<CrmPriority, { label: string; badgeClass: string; borderColor: string } | null> = {
   NONE: null,
-  LOW: { label: "Baixa", className: "bg-blue-50 text-blue-600 border-blue-200" },
-  MEDIUM: { label: "Média", className: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-  HIGH: { label: "Alta", className: "bg-orange-50 text-orange-600 border-orange-200" },
-  URGENT: { label: "Urgente", className: "bg-red-50 text-red-600 border-red-200" },
+  LOW: { label: "Baixa", badgeClass: "bg-blue-50 text-blue-600 border-blue-200", borderColor: "border-l-blue-400" },
+  MEDIUM: { label: "Média", badgeClass: "bg-yellow-50 text-yellow-700 border-yellow-200", borderColor: "border-l-yellow-400" },
+  HIGH: { label: "Alta", badgeClass: "bg-orange-50 text-orange-600 border-orange-200", borderColor: "border-l-orange-500" },
+  URGENT: { label: "Urgente", badgeClass: "bg-red-50 text-red-600 border-red-200", borderColor: "border-l-red-500" },
 };
+
+function daysAgo(dateStr: string): number {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function overdueText(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+  if (days === 0) return "Vencido hoje";
+  if (days === 1) return "Vencido há 1 dia";
+  return `Vencido há ${days} dias`;
+}
 
 interface CrmCardItemProps {
   card: CrmCardData;
@@ -37,6 +49,8 @@ export function CrmCardItem({ card, isDragging = false, onClick }: CrmCardItemPr
     ? "bg-yellow-50 text-yellow-700 border-yellow-200"
     : "bg-gray-50 text-gray-500 border-gray-200";
 
+  const stagedays = daysAgo(card.updatedAt);
+
   return (
     <div
       ref={setNodeRef}
@@ -45,7 +59,8 @@ export function CrmCardItem({ card, isDragging = false, onClick }: CrmCardItemPr
       {...listeners}
       onClick={onClick}
       className={cn(
-        "group rounded-xl bg-white border border-gray-200 p-3.5 shadow-sm cursor-pointer select-none transition-shadow hover:shadow-md hover:border-gray-300",
+        "group rounded-xl bg-white border border-gray-200 border-l-4 p-3.5 shadow-sm cursor-pointer select-none transition-shadow hover:shadow-md hover:border-gray-300",
+        priorityConfig ? priorityConfig.borderColor : "border-l-gray-200",
         (isDragging || isSortableDragging) && "opacity-50 shadow-lg ring-2 ring-blue-300"
       )}
     >
@@ -53,7 +68,7 @@ export function CrmCardItem({ card, isDragging = false, onClick }: CrmCardItemPr
       {(priorityConfig || (card.tags && card.tags.length > 0)) && (
         <div className="flex flex-wrap items-center gap-1 mb-2">
           {priorityConfig && (
-            <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border", priorityConfig.className)}>
+            <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border", priorityConfig.badgeClass)}>
               <AlertCircle className="h-2.5 w-2.5" />
               {priorityConfig.label}
             </span>
@@ -94,22 +109,40 @@ export function CrmCardItem({ card, isDragging = false, onClick }: CrmCardItemPr
         )}
       </div>
 
-      {/* Footer: data e atividades */}
-      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-        {dueDateObj ? (
-          <span className={cn("inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border", dueDateClass)}>
-            <Calendar className="h-2.5 w-2.5" />
-            {dueDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-          </span>
-        ) : (
-          <span />
-        )}
-        {card._count && card._count.activities > 0 && (
-          <div className="flex items-center gap-1">
-            <MessageSquare className="h-3 w-3 text-gray-300" />
-            <span className="text-[10px] text-gray-400">{card._count.activities}</span>
-          </div>
-        )}
+      {/* Footer: data vencida / prazo + dias na etapa + atividades */}
+      <div className="flex items-center justify-between pt-2 border-t border-gray-100 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isOverdue && dueDateObj ? (
+            <span className={cn(
+              "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border",
+              dueDateClass,
+              "animate-pulse"
+            )}>
+              <Calendar className="h-2.5 w-2.5 shrink-0" />
+              {overdueText(card.dueDate!)}
+            </span>
+          ) : dueDateObj ? (
+            <span className={cn("inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border", dueDateClass)}>
+              <Calendar className="h-2.5 w-2.5" />
+              {dueDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {stagedays >= 1 && (
+            <span className="inline-flex items-center gap-0.5 text-[9px] text-gray-400">
+              <Clock className="h-2.5 w-2.5" />
+              {stagedays === 1 ? "1 dia" : `${stagedays}d`}
+            </span>
+          )}
+          {card._count && card._count.activities > 0 && (
+            <div className="flex items-center gap-1">
+              <MessageSquare className="h-3 w-3 text-gray-300" />
+              <span className="text-[10px] text-gray-400">{card._count.activities}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

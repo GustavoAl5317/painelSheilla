@@ -9,6 +9,7 @@ import { CreditCard, KeyRound, Settings2, Bot } from "lucide-react";
 import { CredentialsManager } from "@/components/configuracoes/credentials-manager";
 import { MassBlockManager } from "@/components/configuracoes/mass-block-manager";
 import { OrgSettingsForm } from "@/components/configuracoes/org-settings-form";
+import { OperatorKeywordForm } from "@/components/configuracoes/operator-keyword-form";
 
 const planLabels: Record<string, string> = {
   STARTER: "Starter",
@@ -135,6 +136,9 @@ export default async function ConfiguracoesPage() {
                           readOnly
                           className="flex w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm resize-none"
                         />
+                      </div>
+                      <div className="border-t border-gray-100 pt-4">
+                        <OperatorKeywordForm initialKeyword={(aiConfig as any).operatorKeyword} />
                       </div>
                     </>
                   ) : (

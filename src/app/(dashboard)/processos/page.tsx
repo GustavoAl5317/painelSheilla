@@ -1,3 +1,4 @@
+import React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -6,11 +7,18 @@ import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Scale, Calendar, LinkIcon, FolderOpen } from "lucide-react";
+import { Scale, Calendar, LinkIcon, FolderOpen, Gavel, Bell, MessageSquare, Cpu } from "lucide-react";
 import { formatDate, getInitials } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { NovoProcessoButton } from "@/components/processos/novo-processo-button";
 import { EditProcessButton } from "@/components/processos/edit-process-button";
+
+const entryConfig: Record<string, { icon: React.ElementType; color: string; label: string }> = {
+  DJEN: { icon: Bell, color: "text-purple-500", label: "DJEN" },
+  PJE: { icon: Gavel, color: "text-blue-500", label: "PJE" },
+  COMMENT: { icon: MessageSquare, color: "text-gray-400", label: "Anotação" },
+  SYSTEM: { icon: Cpu, color: "text-gray-300", label: "Sistema" },
+};
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "success" | "destructive" | "warning"; dot: string; bg: string }> = {
   ACTIVE: { label: "Ativo", variant: "success", dot: "bg-emerald-500", bg: "bg-emerald-50" },
@@ -29,6 +37,17 @@ export default async function ProcessosPage() {
       where: { organizationId: orgId },
       include: {
         client: { select: { id: true, name: true, phone: true, email: true } },
+        caseCards: {
+          where: { processId: { not: null } },
+          take: 1,
+          include: {
+            entries: {
+              orderBy: { createdAt: "desc" },
+              take: 3,
+              select: { id: true, source: true, content: true, createdAt: true },
+            },
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -96,6 +115,8 @@ export default async function ProcessosPage() {
                 const status = statusConfig[proc.status];
                 const hasMovement = Boolean(proc.lastMovement);
 
+                const recentEntries = proc.caseCards[0]?.entries ?? [];
+
                 return (
                   <Card
                     key={proc.id}
@@ -156,7 +177,21 @@ export default async function ProcessosPage() {
                             </div>
                           )}
 
-                          {hasMovement && (
+                          {recentEntries.length > 0 ? (
+                            <div className="mt-2 space-y-1.5">
+                              {recentEntries.map((entry) => {
+                                const cfg = entryConfig[entry.source] ?? entryConfig.SYSTEM;
+                                const Icon = cfg.icon;
+                                return (
+                                  <div key={entry.id} className="flex items-start gap-1.5">
+                                    <Icon className={cn("h-3 w-3 shrink-0 mt-0.5", cfg.color)} />
+                                    <p className="text-[10px] text-gray-500 leading-tight line-clamp-1 flex-1">{entry.content}</p>
+                                    <span className="text-[9px] text-gray-300 shrink-0 tabular-nums">{formatDate(entry.createdAt)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : hasMovement && (
                             <p className="text-[11px] text-gray-400 italic line-clamp-2">{proc.lastMovement}</p>
                           )}
                         </div>

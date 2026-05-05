@@ -51,7 +51,7 @@ export default async function ProcessoDetailPage({ params }: { params: Promise<{
   return (
     <div className="flex flex-col h-full">
       <Topbar title="Detalhe do Processo" />
-      <div className="flex-1 overflow-y-auto p-6 max-w-4xl space-y-6">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
         <Link
           href="/processos"
           className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors w-fit"

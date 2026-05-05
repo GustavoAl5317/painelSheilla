@@ -327,6 +327,7 @@ model AIConfig {
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
   blockedNumbers          Json?        @default("[]")
+  operatorKeyword         String?
   organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 

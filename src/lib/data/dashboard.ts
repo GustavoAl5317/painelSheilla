@@ -33,6 +33,7 @@ export async function getDashboardData(organizationId: string) {
     recentProcesses,
     unreadMessages,
     contactsAttendedToday,
+    recentNotifications,
   ] = await Promise.all([
     prisma.lead.count({ where: { organizationId, status: "ACTIVE" } }),
     prisma.lead.count({ where: { organizationId, status: "ACTIVE", stage: { slug: "new_lead" } } }),
@@ -88,6 +89,12 @@ export async function getDashboardData(organizationId: string) {
     }),
     prisma.conversation.count({ where: { organizationId, unreadCount: { gt: 0 } } }),
     prisma.conversation.count({ where: { organizationId, lastMessageAt: { gte: today } } }),
+    prisma.notification.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { id: true, type: true, title: true, message: true, read: true, createdAt: true },
+    }),
   ]);
 
   const conversionRate = totalLeads + converted > 0
@@ -127,5 +134,6 @@ export async function getDashboardData(organizationId: string) {
     recentLeads,
     recentClients,
     recentProcesses,
+    recentNotifications,
   };
 }

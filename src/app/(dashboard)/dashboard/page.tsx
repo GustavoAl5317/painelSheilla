@@ -1,3 +1,4 @@
+import React from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getDashboardData } from "@/lib/data/dashboard";
@@ -5,7 +6,7 @@ import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users, MessageSquare, TrendingUp, ArrowUpRight, ArrowDownRight,
-  Briefcase, Scale, CheckSquare, Bell, UserPlus,
+  Briefcase, Scale, CheckSquare, Bell, UserPlus, Bot, FileText, Activity,
 } from "lucide-react";
 import { formatRelative } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,21 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 const PRIMARY = "#95304e";
+
+type NotifType =
+  | "DEADLINE_APPROACHING" | "DEADLINE_OVERDUE" | "NEW_LEAD"
+  | "LEAD_STALLED" | "NEW_MESSAGE" | "TASK_DUE" | "PROCESS_UPDATE" | "CLIENT_NO_RESPONSE";
+
+const NOTIF_CONFIG: Record<NotifType, { icon: React.ElementType; iconClass: string; bg: string }> = {
+  NEW_LEAD:            { icon: UserPlus,     iconClass: "text-blue-500",   bg: "bg-blue-50" },
+  NEW_MESSAGE:         { icon: MessageSquare,iconClass: "text-green-500",  bg: "bg-green-50" },
+  PROCESS_UPDATE:      { icon: FileText,     iconClass: "text-purple-500", bg: "bg-purple-50" },
+  TASK_DUE:            { icon: CheckSquare,  iconClass: "text-violet-500", bg: "bg-violet-50" },
+  DEADLINE_APPROACHING:{ icon: Bell,         iconClass: "text-amber-500",  bg: "bg-amber-50" },
+  DEADLINE_OVERDUE:    { icon: Bell,         iconClass: "text-red-500",    bg: "bg-red-50" },
+  LEAD_STALLED:        { icon: Users,        iconClass: "text-orange-500", bg: "bg-orange-50" },
+  CLIENT_NO_RESPONSE:  { icon: Bot,          iconClass: "text-gray-400",   bg: "bg-gray-50" },
+};
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -290,7 +306,7 @@ export default async function DashboardPage() {
             </Card>
           </div>
 
-          {/* Linha inferior: leads recentes + clientes novos */}
+          {/* Linha inferior: leads recentes + atividade recente */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* Leads recentes */}
             <Card>
@@ -334,41 +350,58 @@ export default async function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Clientes novos */}
+            {/* Feed de atividade recente */}
             <Card>
               <CardHeader className="pb-2 px-5 pt-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold text-gray-700">Clientes Recentes</CardTitle>
-                  <Link href="/clientes" className="text-[11px] font-medium" style={{ color: PRIMARY }}>
-                    Ver todos
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-semibold text-gray-700">Atividade Recente</CardTitle>
+                    <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  </div>
+                  <Activity className="h-3.5 w-3.5 text-gray-300" />
                 </div>
               </CardHeader>
               <CardContent className="px-5 pb-5">
-                {data.recentClients.length === 0 ? (
+                {data.recentNotifications.length === 0 ? (
                   <div className="py-6 text-center">
-                    <UserPlus className="h-8 w-8 text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">Nenhum cliente cadastrado ainda</p>
+                    <Bell className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+                    <p className="text-sm text-gray-400">Nenhuma atividade ainda</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {data.recentClients.map((client) => (
-                      <Link key={client.id} href={`/clientes/${client.id}`}>
-                        <div className="flex items-center gap-3 py-1.5 hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors">
-                          <div
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                            style={{ backgroundColor: PRIMARY }}
-                          >
-                            {client.name.split(" ").slice(0, 2).map((n: string) => n[0]).join("").toUpperCase()}
+                  <div className="space-y-0.5">
+                    {data.recentNotifications.map((notif, i) => {
+                      const cfg = NOTIF_CONFIG[notif.type as NotifType] ?? { icon: Bell, iconClass: "text-gray-400", bg: "bg-gray-50" };
+                      const Icon = cfg.icon;
+                      const isLast = i === data.recentNotifications.length - 1;
+                      return (
+                        <div key={notif.id} className="flex gap-3 group">
+                          {/* Linha de tempo */}
+                          <div className="flex flex-col items-center">
+                            <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full mt-1", cfg.bg)}>
+                              <Icon className={cn("h-3.5 w-3.5", cfg.iconClass)} />
+                            </div>
+                            {!isLast && <div className="w-px flex-1 bg-gray-100 mt-1 mb-1" />}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-gray-800 truncate">{client.name}</p>
-                            <p className="text-[11px] text-gray-400">{client.phone ?? "Sem telefone"}</p>
+                          {/* Conteúdo */}
+                          <div className={cn("flex-1 min-w-0 pb-3", isLast ? "" : "")}>
+                            <p className={cn("text-xs font-semibold leading-snug truncate", notif.read ? "text-gray-600" : "text-gray-900")}>
+                              {notif.title}
+                            </p>
+                            <p className="text-[11px] text-gray-400 line-clamp-1 leading-snug mt-0.5">
+                              {notif.message}
+                            </p>
+                            <p className="text-[10px] text-gray-300 mt-0.5">
+                              {formatRelative(notif.createdAt)}
+                            </p>
                           </div>
-                          <span className="text-[10px] text-gray-300 shrink-0">{formatRelative(client.createdAt)}</span>
+                          {!notif.read && (
+                            <div className="shrink-0 mt-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 block" />
+                            </div>
+                          )}
                         </div>
-                      </Link>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
