@@ -15,7 +15,8 @@
     "additionalDirectories": [
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\prompts",
-      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\appointments"
+      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\appointments",
+      "c:\\Users\\GustavoAlvesSantana\\.claude\\projects\\c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap\\memory"
     ]
   }
 }

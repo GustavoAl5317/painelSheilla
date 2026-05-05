@@ -175,8 +175,9 @@ model Conversation {
   organizationId String
   leadId         String?
   clientId       String?
-  lastMessageAt  DateTime?
-  unreadCount    Int                @default(0)
+  lastMessageAt          DateTime?
+  operatorLastMessageAt  DateTime?
+  unreadCount            Int                @default(0)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   isBlocked      Boolean            @default(false)

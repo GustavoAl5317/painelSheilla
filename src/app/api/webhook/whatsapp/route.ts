@@ -43,31 +43,6 @@ export async function POST(req: NextRequest) {
     where: { organizationId: org.id },
   });
 
-  // ── Comandos do operador (mensagens enviadas pelo advogado) ──────────────────
-  if (parsed.fromMe) {
-    const cmd = parsed.content.trim();
-    const isStopCmd = cmd === "#";
-    const isResumeCmd = cmd === ".";
-    const operatorKw = (aiConfig as any)?.operatorKeyword?.trim();
-    const isOperatorKw = operatorKw && cmd.toLowerCase() === operatorKw.toLowerCase();
-
-    if (isStopCmd || isResumeCmd || isOperatorKw) {
-      const conversation = await prisma.conversation.findFirst({
-        where: { phoneNumber: parsed.phone, organizationId: org.id },
-        select: { id: true },
-      });
-      if (conversation) {
-        const enableAi = isResumeCmd;
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { aiEnabled: enableAi },
-        });
-        console.log(`[webhook] operador comando="${cmd}" → aiEnabled=${enableAi} (conv=${conversation.id})`);
-      }
-    }
-    return NextResponse.json({ ok: true, ignored: "fromMe" });
-  }
-
   const phoneNumber = parsed.phone;
   let messageContent = parsed.content;
   const externalMessageId = parsed.externalMessageId;
@@ -112,7 +87,6 @@ export async function POST(req: NextRequest) {
       where: { organizationId: org.id, slug: "new_lead" },
     });
 
-    // Verifica se este número pertencia a um cliente excluído — usa o nome dele se sim
     const formerClient = await prisma.client.findFirst({
       where: { organizationId: org.id, phone: phoneNumber },
       select: { name: true },
@@ -156,7 +130,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Salva mensagem recebida (idempotência por externalId) ────────────────
+  // ── Salva mensagem (idempotência por externalId) ─────────────────────────
   if (externalMessageId) {
     const existing = await prisma.message.findFirst({
       where: { externalId: externalMessageId },
@@ -167,12 +141,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const inboundMsg = await prisma.message.create({
+  const msg = await prisma.message.create({
     data: {
       conversationId: conversation.id,
       content: messageContent,
       type: messageType as "TEXT" | "IMAGE" | "AUDIO",
-      direction: "INBOUND",
+      direction: parsed.fromMe ? "OUTBOUND" : "INBOUND",
       status: "READ",
       externalId: externalMessageId,
       mediaUrl: audioUrl,
@@ -182,14 +156,45 @@ export async function POST(req: NextRequest) {
 
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: "OPEN" },
+    data: { 
+      lastMessageAt: new Date(), 
+      unreadCount: parsed.fromMe ? undefined : { increment: 1 }, 
+      status: parsed.fromMe ? "IN_PROGRESS" : "OPEN" 
+    },
   });
 
-  emit(org.id, "message", { conversationId: conversation.id, message: inboundMsg });
+  emit(org.id, "message", { conversationId: conversation.id, message: msg });
+
+  // ── Se a mensagem veio do Operador, atualiza aiEnabled e PARA ─────────────
+  if (parsed.fromMe) {
+    const cmd = messageContent.trim();
+    const isResumeCmd = cmd === ".";
+    const operatorKw = (aiConfig as any)?.operatorKeyword?.trim();
+    const isOperatorKw = operatorKw && cmd.toLowerCase() === operatorKw.toLowerCase();
+
+    // Ativa se for comando de retomar, desativa para QUALQUER outra interação manual
+    const enableAi = isResumeCmd || isOperatorKw;
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { aiEnabled: enableAi, operatorLastMessageAt: new Date() },
+    });
+    console.log(`[webhook] interação operador → aiEnabled=${enableAi} (conv=${conversation.id}, content="${cmd}")`);
+
+    return NextResponse.json({ ok: true, ignored: "fromMe_processed" });
+  }
 
   // ── Processa com IA (somente se aiEnabled) ────────────────────────────────
-  if (!conversation.aiEnabled) {
-    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada.`);
+  // Marca o momento em que a mensagem do cliente chegou — usado depois para detectar intervenção do operador
+  const clientMessageReceivedAt = new Date();
+
+  // Busca status atualizado do banco para evitar race conditions com mensagens do operador
+  const freshConv = await prisma.conversation.findUnique({
+    where: { id: conversation.id },
+    select: { aiEnabled: true, operatorLastMessageAt: true },
+  });
+
+  if (!freshConv?.aiEnabled) {
+    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
     return NextResponse.json({ ok: true, ai: "disabled" });
   }
 
@@ -202,6 +207,21 @@ export async function POST(req: NextRequest) {
   }
 
   if (aiResult?.content) {
+    // Verifica se o operador respondeu enquanto a IA estava processando
+    const convAfterAI = await prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: { aiEnabled: true, operatorLastMessageAt: true },
+    });
+
+    const operatorRespondedDuringAI =
+      convAfterAI?.operatorLastMessageAt &&
+      convAfterAI.operatorLastMessageAt > clientMessageReceivedAt;
+
+    if (!convAfterAI?.aiEnabled || operatorRespondedDuringAI) {
+      console.log(`[Webhook] AI bloqueada para ${phoneNumber}: operador respondeu durante processamento.`);
+      return NextResponse.json({ ok: true, ai: "blocked_by_operator" });
+    }
+
     const aiMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
