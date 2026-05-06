@@ -169,11 +169,9 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
     const isResumeCmd = cmd === ".";
-    const operatorKw = (aiConfig as any)?.operatorKeyword?.trim();
-    const isOperatorKw = operatorKw && cmd.toLowerCase() === operatorKw.toLowerCase();
 
-    // Ativa se for comando de retomar, desativa para QUALQUER outra interação manual
-    const enableAi = isResumeCmd || isOperatorKw;
+    // Ativa SOMENTE se for o comando de retomar (.), desativa para qualquer outra mensagem do operador
+    const enableAi = isResumeCmd;
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { aiEnabled: enableAi, operatorLastMessageAt: new Date() },
