@@ -110,15 +110,10 @@ export function ChatShell() {
           return fresh.map((c) => {
             const existing = prev.find((p) => p.id === c.id);
             if (!existing) return c;
-            // Mescla mensagens dos dois lados deduplucando por id
-            const serverIds = new Set((c.messages ?? []).map((m) => m.id));
-            const localOnly = (existing.messages ?? []).filter((m) => !serverIds.has(m.id));
-            const merged = [...(c.messages ?? []), ...localOnly].sort(
-              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
             return {
               ...c,
-              messages: merged,
+              // Mantém as mensagens do estado local — o pollMessages cuida disso separadamente
+              messages: existing.messages,
               // Preserva isBlocked local enquanto toggle está em progresso para evitar flickering
               isBlocked: togglingBlockRef.current && c.id === selectedIdRef.current ? existing.isBlocked : c.isBlocked,
             };

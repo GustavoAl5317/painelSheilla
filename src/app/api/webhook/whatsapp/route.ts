@@ -130,6 +130,48 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Mensagens do operador: trata antes de salvar ─────────────────────────
+  if (parsed.fromMe) {
+    const cmd = messageContent.trim();
+
+    // Echo da própria IA — ignora completamente
+    const aiEchoWindow = new Date(Date.now() - 30_000);
+    const isAiEcho = await prisma.message.findFirst({
+      where: { conversationId: conversation.id, isAI: true, content: messageContent, createdAt: { gte: aiEchoWindow } },
+      select: { id: true },
+    });
+    if (isAiEcho) {
+      console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
+      return NextResponse.json({ ok: true, ignored: "ai_echo" });
+    }
+
+    // "." → reativa IA, não salva nem envia ao cliente
+    if (cmd === ".") {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiEnabled: true, operatorLastMessageAt: new Date() },
+      });
+      console.log(`[webhook] operador reativou IA (conv=${conversation.id})`);
+      return NextResponse.json({ ok: true, ignored: "ai_resumed" });
+    }
+
+    // "#" → pausa IA, não salva nem aparece no chat
+    if (cmd === "#") {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiEnabled: false, operatorLastMessageAt: new Date() },
+      });
+      console.log(`[webhook] operador pausou IA (conv=${conversation.id})`);
+      return NextResponse.json({ ok: true, ignored: "ai_paused" });
+    }
+
+    // Mensagem normal do operador — salva, exibe no chat, IA não é alterada
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { operatorLastMessageAt: new Date() },
+    });
+  }
+
   // ── Salva mensagem (idempotência por externalId ou conteúdo recente) ───────
   if (externalMessageId) {
     const existing = await prisma.message.findFirst({
@@ -171,26 +213,17 @@ export async function POST(req: NextRequest) {
 
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { 
-      lastMessageAt: new Date(), 
-      unreadCount: parsed.fromMe ? undefined : { increment: 1 }, 
-      status: parsed.fromMe ? "IN_PROGRESS" : "OPEN" 
+    data: {
+      lastMessageAt: new Date(),
+      unreadCount: parsed.fromMe ? undefined : { increment: 1 },
+      status: parsed.fromMe ? "IN_PROGRESS" : "OPEN"
     },
   });
 
   emit(org.id, "message", { conversationId: conversation.id, message: msg });
 
-  // ── Se a mensagem veio do Operador, atualiza aiEnabled e PARA ─────────────
-  // "#" reativa a IA; qualquer outra mensagem desativa.
+  // Mensagem normal do operador já foi tratada acima — para aqui
   if (parsed.fromMe) {
-    const cmd = messageContent.trim();
-    const enableAi = cmd === "#";
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { aiEnabled: enableAi, operatorLastMessageAt: new Date() },
-    });
-    console.log(`[webhook] interação operador → aiEnabled=${enableAi} (conv=${conversation.id}, content="${cmd}")`);
-
     return NextResponse.json({ ok: true, ignored: "fromMe_processed" });
   }
 

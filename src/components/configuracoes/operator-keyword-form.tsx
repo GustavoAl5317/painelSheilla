@@ -31,7 +31,7 @@ export function OperatorKeywordForm({ initialKeyword }: { initialKeyword?: strin
       <div>
         <p className="text-xs font-medium text-gray-600 mb-1">Palavra-chave para assumir atendimento</p>
         <p className="text-xs text-gray-400 mb-2">
-          Qualquer mensagem enviada pelo operador pausa a IA. Use <span className="font-mono bg-gray-100 px-1 rounded">#</span> para reativar a IA no WhatsApp.
+          Use <span className="font-mono bg-gray-100 px-1 rounded">#</span> para pausar a IA e <span className="font-mono bg-gray-100 px-1 rounded">.</span> para reativar. Outras mensagens são enviadas normalmente sem afetar a IA.
         </p>
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -59,8 +59,9 @@ export function OperatorKeywordForm({ initialKeyword }: { initialKeyword?: strin
       <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 space-y-1">
         <p className="text-xs font-semibold text-indigo-700">Comandos disponíveis no WhatsApp</p>
         <div className="flex flex-col gap-0.5">
-          <p className="text-xs text-indigo-600"><span className="font-mono font-bold">#</span> — Reativa a IA</p>
-          <p className="text-xs text-indigo-600">Qualquer outra mensagem do operador pausa a IA.</p>
+          <p className="text-xs text-indigo-600"><span className="font-mono font-bold">#</span> — Pausa a IA</p>
+          <p className="text-xs text-indigo-600"><span className="font-mono font-bold">.</span> — Reativa a IA (não enviado ao cliente)</p>
+          <p className="text-xs text-indigo-600">Outras mensagens são enviadas normalmente sem alterar a IA.</p>
           {keyword.trim() && (
             <p className="text-xs text-indigo-600">
               <span className="font-mono font-bold">{keyword.trim()}</span> — Para a IA (sua palavra-chave)
