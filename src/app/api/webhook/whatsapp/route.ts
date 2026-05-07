@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Salva mensagem (idempotência por externalId) ─────────────────────────
+  // ── Salva mensagem (idempotência por externalId ou conteúdo recente) ───────
   if (externalMessageId) {
     const existing = await prisma.message.findFirst({
       where: { externalId: externalMessageId },
@@ -138,6 +138,21 @@ export async function POST(req: NextRequest) {
     });
     if (existing) {
       return NextResponse.json({ ok: true, ignored: "duplicate" });
+    }
+  } else {
+    // Sem externalId: evita duplicata por conteúdo idêntico nos últimos 10s
+    const dedupeWindow = new Date(Date.now() - 10_000);
+    const existing = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        content: messageContent,
+        direction: parsed.fromMe ? "OUTBOUND" : "INBOUND",
+        createdAt: { gte: dedupeWindow },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json({ ok: true, ignored: "duplicate_content" });
     }
   }
 
@@ -166,12 +181,10 @@ export async function POST(req: NextRequest) {
   emit(org.id, "message", { conversationId: conversation.id, message: msg });
 
   // ── Se a mensagem veio do Operador, atualiza aiEnabled e PARA ─────────────
+  // "#" reativa a IA; qualquer outra mensagem desativa.
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
-    const isResumeCmd = cmd === ".";
-
-    // Ativa SOMENTE se for o comando de retomar (.), desativa para qualquer outra mensagem do operador
-    const enableAi = isResumeCmd;
+    const enableAi = cmd === "#";
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { aiEnabled: enableAi, operatorLastMessageAt: new Date() },

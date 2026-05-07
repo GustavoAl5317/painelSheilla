@@ -10,13 +10,16 @@
       "Bash(curl -s -i \"https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroOab=123456&ufOab=SP&page=0&size=1\" -H \"Accept: application/json\")",
       "Bash(Remove-Item -Recurse -Force .next)",
       "Bash(rm -rf .next)",
-      "Bash(ls .next)"
+      "Bash(ls .next)",
+      "Read(//c/Users/GustavoAlvesSantana/OneDrive - INTERATELL/Documentos/AdvZap/**)",
+      "Bash(xargs grep *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\prompts",
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\appointments",
-      "c:\\Users\\GustavoAlvesSantana\\.claude\\projects\\c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap\\memory"
+      "c:\\Users\\GustavoAlvesSantana\\.claude\\projects\\c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap\\memory",
+      "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap-landing"
     ]
   }
 }

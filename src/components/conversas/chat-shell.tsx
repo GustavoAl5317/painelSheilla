@@ -110,12 +110,15 @@ export function ChatShell() {
           return fresh.map((c) => {
             const existing = prev.find((p) => p.id === c.id);
             if (!existing) return c;
+            // Mescla mensagens dos dois lados deduplucando por id
+            const serverIds = new Set((c.messages ?? []).map((m) => m.id));
+            const localOnly = (existing.messages ?? []).filter((m) => !serverIds.has(m.id));
+            const merged = [...(c.messages ?? []), ...localOnly].sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
             return {
               ...c,
-              // Preserva mensagens locais se tiver mais do que o servidor retornou
-              messages: existing.messages?.length > (c.messages?.length ?? 0)
-                ? existing.messages
-                : c.messages,
+              messages: merged,
               // Preserva isBlocked local enquanto toggle está em progresso para evitar flickering
               isBlocked: togglingBlockRef.current && c.id === selectedIdRef.current ? existing.isBlocked : c.isBlocked,
             };
@@ -131,7 +134,10 @@ export function ChatShell() {
         const res = await fetch(`/api/conversations/${id}/messages`, { credentials: "include" });
         if (!res.ok) return;
         const j = await res.json();
-        const messages = (j.data as PrismaMessage[]).map((m) => ({ ...m, createdAt: new Date(m.createdAt) }));
+        const seen = new Set<string>();
+        const messages = (j.data as PrismaMessage[])
+          .map((m) => ({ ...m, createdAt: new Date(m.createdAt) }))
+          .filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
         setList((prev) => prev.map((c) => c.id === id ? { ...c, messages } : c));
       } catch {}
     };
