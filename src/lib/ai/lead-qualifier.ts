@@ -108,7 +108,7 @@ export async function processIncomingMessage(
   currentMessageId?: string
 ) {
   const convInclude = {
-    messages: { orderBy: { createdAt: "asc" as const }, take: 40 },
+    messages: { orderBy: { createdAt: "desc" as const }, take: 60 },
     lead: { include: { stage: true } },
   };
   let conversation = await prisma.conversation.findUnique({
@@ -201,18 +201,20 @@ export async function processIncomingMessage(
     }
   }
 
+  // Mensagens chegam em ordem decrescente (mais recente primeiro) — inverte para ordem cronológica
+  const chronological = [...conversation.messages].reverse();
+
   // Exclui a mensagem atual do histórico por ID (se disponível) ou pela posição final.
-  // Usar ID evita cortar a mensagem errada quando o banco retorna em ordem levemente diferente.
   const priorMessages = currentMessageId
-    ? conversation.messages.filter(m => m.id !== currentMessageId)
-    : conversation.messages.slice(0, -1);
+    ? chronological.filter(m => m.id !== currentMessageId)
+    : chronological.slice(0, -1);
   const history: AIMessage[] = priorMessages.map(m => ({
     role: m.direction === "INBOUND" ? "user" : "assistant",
     content: m.content,
   }));
 
-  const inbounds = conversation.messages.filter(m => m.direction === "INBOUND");
-  const hadAiReply = conversation.messages.some(m => m.direction === "OUTBOUND" && m.isAI);
+  const inbounds = chronological.filter(m => m.direction === "INBOUND");
+  const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
   const allInboundText = inbounds.map(m => m.content).join("\n");
   const lead = conversation.lead;
   const nameLooksPhone =
@@ -230,6 +232,23 @@ export async function processIncomingMessage(
     textSuggestsOngoing(allInboundText)
       ? "established"
       : "cold";
+
+  // Se a mensagem sugere conversa em andamento mas não há histórico nem cadastro,
+  // o sistema não tem contexto anterior — avisa que a doutora responderá em breve.
+  const semContexto =
+    leadMode === "established" &&
+    history.length === 0 &&
+    !clientContext &&
+    textSuggestsOngoing(userMessage);
+
+  if (semContexto) {
+    return {
+      content: "Olá! Recebi sua mensagem. Nossa equipe já foi notificada e a doutora responderá em breve. 😊",
+      shouldTransferToHuman: true,
+      triageComplete: false,
+      qualifiedData: { score: 0 },
+    };
+  }
 
   const result = await runAIChat(config, history, userMessage, {
     clientContext,

@@ -14,7 +14,6 @@ import {
   CalendarDays,
   ChevronRight,
   KanbanSquare,
-  BrainCircuit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMobileNav } from "./mobile-nav-context";
@@ -31,7 +30,6 @@ const mainNav = [
   { label: "Processos", href: "/processos", icon: Scale },
   { label: "Consulta DJEN", href: "/djen", icon: Newspaper },
   { label: "Agenda", href: "/agenda", icon: CalendarDays },
-  { label: "Prompts", href: "/prompts", icon: BrainCircuit },
 ];
 
 const bottomNav = [

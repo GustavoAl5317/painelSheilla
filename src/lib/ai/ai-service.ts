@@ -72,16 +72,24 @@ export async function runAIChat(
 function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false): string {
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
-    : "";
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos."
     : "";
 
+  const antiHallucination = `
+REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
+- NUNCA invente, suponha ou deduza informações que o cliente não disse explicitamente nesta conversa.
+- NUNCA confirme, repita ou valide dados (nome, processo, benefício, datas, valores, decisões) que não estejam no histórico desta conversa ou nos dados do cliente acima.
+- Se não sabe algo, diga exatamente: "Não tenho essa informação. A equipe do escritório poderá verificar isso para você."
+- NUNCA complete frases do cliente com suposições. Pergunte se precisar confirmar.
+- NUNCA mencione leis, artigos, jurisprudências ou prazos específicos — isso é parecer jurídico.`;
+
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
 - Este é um cliente existente do escritório. Trate-o com prioridade e pelo nome.
-- Você pode informar sobre processos e movimentações usando os dados acima.
+- Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
 - NUNCA mencione valores, honorários ou garanta resultados.
@@ -91,9 +99,12 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
       ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
-- Esta pessoa já está em contato com o escritório. NÃO reinicie a triagem do zero; retome exatamente de onde o histórico parou.
-- Continue seguindo o FLUXO definido acima a partir da próxima etapa pendente.
-- Ao concluir a triagem, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
+- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação, cidade/urgência).
+- Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas.
+- Se ainda não coletou nome, e-mail, área ou situação, colete agora — mesmo que a conversa seja antiga.
+- Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.
+- NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
+- Ao concluir todas as etapas, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
 - NUNCA pergunte se o cliente já tem advogado.
@@ -101,6 +112,8 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Responda em português brasileiro, empático e profissional.`
       : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
 - Siga o FLUXO definido acima, uma etapa por vez. Nunca pule etapas nem junte perguntas.
+- Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça brevemente e redirecione com firmeza e cordialidade para a próxima etapa da triagem.
+- NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
@@ -110,7 +123,7 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda sempre em português brasileiro, de forma empática e profissional.`;
 
-  return `${base}${clientSection}${instructions}${mediaInstruction}`;
+  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────
@@ -297,11 +310,18 @@ export async function analyzeMediaWithAI(
   mediaType: "image" | "document",
   apiKey: string,
 ): Promise<string | null> {
+  const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB
+
   try {
     const dlRes = await fetch(mediaUrl);
     if (!dlRes.ok) return null;
 
+    const contentLength = dlRes.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > MAX_MEDIA_BYTES) return null;
+
     const buffer = await dlRes.arrayBuffer();
+    if (buffer.byteLength > MAX_MEDIA_BYTES) return null;
+
     const contentType = dlRes.headers.get("content-type") ?? "";
     const isImage = mediaType === "image" || contentType.startsWith("image/");
 

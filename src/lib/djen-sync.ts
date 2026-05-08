@@ -105,7 +105,8 @@ export async function fetchComunicacoesPJeAuth(
 
   const all: PJeCommunication[] = [];
   let page = 0;
-  for (;;) {
+  const MAX_PAGES = 50;
+  for (; page < MAX_PAGES;) {
     const { content, last } = await pjeFetchCommunications(access_token, false, page, 100);
     const filtered = content.filter(c => {
       const d = c.dataDisponibilizacao?.slice(0, 10) ?? "";
@@ -113,7 +114,6 @@ export async function fetchComunicacoesPJeAuth(
     });
     all.push(...filtered);
     if (last || content.length === 0) break;
-    // Se todos os itens da página já são anteriores ao intervalo, para
     const oldest = content[content.length - 1]?.dataDisponibilizacao?.slice(0, 10) ?? "";
     if (oldest < dataInicio) break;
     page++;
@@ -128,34 +128,42 @@ export async function fetchComunicacoesOAB(
   dataInicio: string,
   dataFim: string
 ): Promise<ComunicacaoAPIItem[]> {
-  const url = new URL(COMUNICA_API);
-  url.searchParams.set("numeroOab", numero);
-  if (uf) url.searchParams.set("ufOab", uf);
-  url.searchParams.set("dataDisponibilizacaoInicio", dataInicio);
-  url.searchParams.set("dataDisponibilizacaoFim", dataFim);
+  const all: ComunicacaoAPIItem[] = [];
+  let pagina = 1;
+  const MAX_PAGES = 50;
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Referer": "https://comunicaapi.pje.jus.br/",
-      "Origin": "https://comunicaapi.pje.jus.br",
-    },
-  });
+  for (; pagina <= MAX_PAGES;) {
+    const url = new URL(COMUNICA_API);
+    url.searchParams.set("numeroOab", numero);
+    if (uf) url.searchParams.set("ufOab", uf);
+    url.searchParams.set("dataDisponibilizacaoInicio", dataInicio);
+    url.searchParams.set("dataDisponibilizacaoFim", dataFim);
+    url.searchParams.set("itensPorPagina", "100");
+    url.searchParams.set("pagina", String(pagina));
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`);
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`);
+    }
+
+    const data = (await res.json()) as ComunicacaoAPIResponse;
+    if (data.status && data.status !== "success") {
+      throw new Error(data.message || "Resposta inesperada da API de comunicações");
+    }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    all.push(...items);
+
+    if (items.length < 100) break;
+    pagina++;
   }
 
-  const data = (await res.json()) as ComunicacaoAPIResponse;
-  if (data.status && data.status !== "success") {
-    throw new Error(data.message || "Resposta inesperada da API de comunicações");
-  }
-
-  return Array.isArray(data.items) ? data.items : [];
+  return all;
 }
 
 /** CPF na publicação vem só com dígitos; no cadastro pode estar formatado. */

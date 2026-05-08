@@ -131,6 +131,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Mensagens do operador: trata antes de salvar ─────────────────────────
+  console.log(`[webhook] fromMe=${parsed.fromMe} content="${messageContent.slice(0, 20)}"`);
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
         data: { aiEnabled: false, operatorLastMessageAt: new Date() },
       });
       console.log(`[webhook] operador pausou IA (conv=${conversation.id})`);
-      return NextResponse.json({ ok: true, ignored: "ai_paused" });
+      return NextResponse.json({ ok: true, ai_paused: true });
     }
 
     // Mensagem normal do operador — salva, exibe no chat, IA não é alterada
