@@ -33,11 +33,11 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean }
+  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold", hasMedia = false } = options ?? {};
+  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -69,7 +69,7 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
     : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
@@ -129,7 +129,11 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda sempre em português brasileiro, de forma empática e profissional.`;
 
-  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}`;
+  const operatorNote = operatorIntervened
+    ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
+    : "";
+
+  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────

@@ -208,10 +208,21 @@ export async function processIncomingMessage(
   const priorMessages = currentMessageId
     ? chronological.filter(m => m.id !== currentMessageId)
     : chronological.slice(0, -1);
-  const history: AIMessage[] = priorMessages.map(m => ({
-    role: m.direction === "INBOUND" ? "user" : "assistant",
-    content: m.content,
-  }));
+
+  // Detecta se o operador humano interveio (mensagem OUTBOUND não gerada pela IA)
+  const operatorIntervened = priorMessages.some(m => m.direction === "OUTBOUND" && !m.isAI);
+
+  // Monta histórico completo. Mensagens do operador humano entram como "assistant" mas com
+  // prefixo "[Atendente humano]" para a IA não confundir com respostas dela mesma.
+  const history: AIMessage[] = priorMessages.map(m => {
+    if (m.direction === "OUTBOUND" && !m.isAI) {
+      return { role: "assistant" as const, content: `[Atendente humano]: ${m.content}` };
+    }
+    return {
+      role: m.direction === "INBOUND" ? "user" as const : "assistant" as const,
+      content: m.content,
+    };
+  });
 
   const inbounds = chronological.filter(m => m.direction === "INBOUND");
   const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
@@ -254,6 +265,7 @@ export async function processIncomingMessage(
     clientContext,
     leadMode,
     hasMedia,
+    operatorIntervened,
   });
 
   // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────

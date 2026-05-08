@@ -23,11 +23,13 @@ function str(v: unknown): string | null {
 }
 
 export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedInbound | { skip: true; reason: string } {
-  // Eventos de status (entrega, leitura) — nunca são mensagens de conteúdo
+  // Eventos de status (entrega, leitura, envio) — nunca são mensagens de conteúdo
   if (
     body.type === "DeliveredCallback" ||
     body.type === "ReadCallback" ||
-    body.type === "MessageStatusCallback"
+    body.type === "MessageStatusCallback" ||
+    body.type === "SentCallback" ||
+    body.type === "sent"
   ) {
     return { skip: true, reason: "status_event" };
   }
@@ -36,9 +38,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     body.fromMe === true ||
     body.isFromMe === true ||
     body.direction === "out" ||
-    body.direction === "OUTBOUND" ||
-    body.status === "SENT" ||
-    body.type === "sent";
+    body.direction === "OUTBOUND";
 
   const rawPhone =
     str(body.phone) ??

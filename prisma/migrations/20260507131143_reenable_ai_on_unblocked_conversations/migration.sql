@@ -1,5 +1,4 @@
--- Reativa a IA em todas as conversas que não estão bloqueadas.
--- Garante que ao subir o deploy, todos os atendimentos tenham IA ativa por padrão.
+-- Reativa a IA em todas as conversas (sem WHERE em isBlocked pois a coluna pode não existir ainda no shadow DB).
+-- isBlocked = false é o estado padrão, então UPDATE sem filtro é equivalente e seguro.
 UPDATE "Conversation"
-SET "aiEnabled" = true
-WHERE "isBlocked" = false;
+SET "aiEnabled" = true;

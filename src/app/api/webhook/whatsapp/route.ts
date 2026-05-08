@@ -24,9 +24,8 @@ export async function POST(req: NextRequest) {
   }
 
   // LOG TEMPORÁRIO — remover após diagnóstico
-  if (body.type === "ReceivedCallback" && !body.fromMe) {
-    console.log("[webhook] ReceivedCallback keys:", Object.keys(body));
-    console.log("[webhook] body:", JSON.stringify(body, null, 2));
+  if (body.fromMe === true || body.isFromMe === true) {
+    console.log("[webhook] fromMe body:", JSON.stringify(body, null, 2));
   }
 
   const parsed = parseWhatsAppWebhookBody(body);
@@ -61,36 +60,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 
-  // ── Transcreve áudio (síncrono) / detecta mídia visual ──────────────────
   const openaiKey = await resolveCredential(org.id, "OPENAI_API_KEY") ?? aiConfig?.apiKey ?? null;
   const hasMedia = !!(imageUrl || documentUrl);
 
-  if (messageType === "AUDIO" && audioUrl && openaiKey) {
-    const transcription = await transcribeAudio(audioUrl, openaiKey);
-    if (transcription) messageContent = transcription;
-  } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
-    const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
-    const mediaType = messageType === "IMAGE" ? "image" : "document";
-    const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey);
-    if (analysis) {
-      messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
-    }
-  }
-
-  // ── Busca ou cria conversa ────────────────────────────────────────────────
-  let conversation = await prisma.conversation.findFirst({
-    where: { phoneNumber, organizationId: org.id },
+  // ── Busca ou cria conversa (atômico — evita race condition de duplicata) ──
+  let conversation = await prisma.conversation.findUnique({
+    where: { organizationId_phoneNumber: { organizationId: org.id, phoneNumber } },
   });
 
   if (!conversation) {
-    const defaultStage = await prisma.kanbanStage.findFirst({
-      where: { organizationId: org.id, slug: "new_lead" },
-    });
-
-    const formerClient = await prisma.client.findFirst({
-      where: { organizationId: org.id, phone: phoneNumber },
-      select: { name: true },
-    });
+    const [defaultStage, formerClient] = await Promise.all([
+      prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
+      prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } }),
+    ]);
 
     const lead = await prisma.lead.create({
       data: {
@@ -102,16 +84,28 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    conversation = await prisma.conversation.create({
-      data: {
-        phoneNumber,
-        organizationId: org.id,
-        leadId: lead.id,
-        status: "OPEN",
-        aiEnabled: true,
-        lastMessageAt: new Date(),
-      },
-    });
+    try {
+      conversation = await prisma.conversation.create({
+        data: {
+          phoneNumber,
+          organizationId: org.id,
+          leadId: lead.id,
+          status: "OPEN",
+          aiEnabled: true,
+          lastMessageAt: new Date(),
+        },
+      });
+    } catch (e: any) {
+      // Unique constraint: outra requisição criou a conversa em paralelo — busca a existente
+      if (e?.code === "P2002") {
+        conversation = await prisma.conversation.findUnique({
+          where: { organizationId_phoneNumber: { organizationId: org.id, phoneNumber } },
+        });
+        // Lead órfão criado nesta requisição — remove para não poluir o kanban
+        await prisma.lead.delete({ where: { id: lead.id } }).catch(() => {});
+      }
+      if (!conversation) throw e;
+    }
   }
 
   // ── Verifica se o contato está bloqueado ──────────────────────────────────
@@ -166,11 +160,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ai_paused: true });
     }
 
-    // Mensagem normal do operador — salva, exibe no chat, IA não é alterada
+    // Mensagem normal do operador — pausa IA e salva no chat
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { operatorLastMessageAt: new Date() },
+      data: { operatorLastMessageAt: new Date(), aiEnabled: false },
     });
+  }
+
+  // ── Transcreve áudio / analisa mídia (somente mensagens do cliente) ─────────
+  if (!parsed.fromMe) {
+    if (messageType === "AUDIO" && audioUrl && openaiKey) {
+      const transcription = await transcribeAudio(audioUrl, openaiKey);
+      if (transcription) messageContent = transcription;
+    } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
+      const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
+      const mediaType = messageType === "IMAGE" ? "image" : "document";
+      const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey);
+      if (analysis) {
+        messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
+      }
+    }
   }
 
   // ── Salva mensagem (idempotência por externalId ou conteúdo recente) ───────

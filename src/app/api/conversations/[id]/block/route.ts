@@ -68,7 +68,7 @@ export async function PATCH(
     where: { id },
     data: {
       isBlocked: blocked,
-      aiEnabled: blocked ? false : true,
+      ...(blocked && { aiEnabled: false }),
     },
     select: { id: true, isBlocked: true, aiEnabled: true },
   });
