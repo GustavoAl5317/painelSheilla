@@ -130,7 +130,7 @@ export async function fetchComunicacoesOAB(
 ): Promise<ComunicacaoAPIItem[]> {
   const url = new URL(COMUNICA_API);
   url.searchParams.set("numeroOab", numero);
-  if (uf) url.searchParams.set("siglaUf", uf);
+  if (uf) url.searchParams.set("ufOab", uf);
   url.searchParams.set("dataDisponibilizacaoInicio", dataInicio);
   url.searchParams.set("dataDisponibilizacaoFim", dataFim);
 
