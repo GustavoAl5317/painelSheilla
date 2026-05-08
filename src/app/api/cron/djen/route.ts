@@ -21,16 +21,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, message: "Nenhuma organização com DJEN configurado." });
   }
 
-  const results: { organizationId: string; synced: number; errors: string[] }[] = [];
+  const settled = await Promise.allSettled(
+    rows.map(({ organizationId }) =>
+      syncDJEN(organizationId).then(result => ({ organizationId, ...result }))
+    )
+  );
 
-  for (const { organizationId } of rows) {
-    try {
-      const result = await syncDJEN(organizationId);
-      results.push({ organizationId, ...result });
-    } catch (err) {
-      results.push({ organizationId, synced: 0, errors: [(err as Error).message] });
-    }
-  }
+  const results = settled.map((r, i) =>
+    r.status === "fulfilled"
+      ? r.value
+      : { organizationId: rows[i].organizationId, synced: 0, errors: [(r.reason as Error).message] }
+  );
 
   const totalSynced = results.reduce((acc, r) => acc + r.synced, 0);
   console.log(`[DJEN Cron] ${totalSynced} publicações sincronizadas em ${rows.length} org(s).`);

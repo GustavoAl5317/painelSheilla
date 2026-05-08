@@ -12,7 +12,8 @@
       "Bash(rm -rf .next)",
       "Bash(ls .next)",
       "Read(//c/Users/GustavoAlvesSantana/OneDrive - INTERATELL/Documentos/AdvZap/**)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(npx tsx *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",

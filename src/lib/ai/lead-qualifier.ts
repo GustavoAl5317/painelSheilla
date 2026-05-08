@@ -104,7 +104,8 @@ export async function processIncomingMessage(
   organizationId: string,
   conversationId: string,
   userMessage: string,
-  hasMedia = false
+  hasMedia = false,
+  currentMessageId?: string
 ) {
   const convInclude = {
     messages: { orderBy: { createdAt: "asc" as const }, take: 40 },
@@ -200,8 +201,11 @@ export async function processIncomingMessage(
     }
   }
 
-  // Última mensagem do array = inbound que o webhook acabou de salvar; não duplicar no prompt
-  const priorMessages = conversation.messages.slice(0, -1);
+  // Exclui a mensagem atual do histórico por ID (se disponível) ou pela posição final.
+  // Usar ID evita cortar a mensagem errada quando o banco retorna em ordem levemente diferente.
+  const priorMessages = currentMessageId
+    ? conversation.messages.filter(m => m.id !== currentMessageId)
+    : conversation.messages.slice(0, -1);
   const history: AIMessage[] = priorMessages.map(m => ({
     role: m.direction === "INBOUND" ? "user" : "assistant",
     content: m.content,
@@ -220,7 +224,6 @@ export async function processIncomingMessage(
     );
 
   const leadMode: LeadChatMode =
-    inbounds.length > 1 ||
     hadAiReply ||
     (lead && !nameLooksPhone) ||
     textSuggestsOngoing(userMessage) ||
@@ -280,6 +283,34 @@ export async function processIncomingMessage(
       currentLead?.stage?.slug,
       score
     );
+  }
+
+  // ── Triagem concluída ─────────────────────────────────────────────────────
+  if (result.triageComplete && conversation.leadId) {
+    await prisma.lead.update({
+      where: { id: conversation.leadId },
+      data: { aiQualified: true, aiScore: Math.max(conversation.lead?.aiScore ?? 0, 80) },
+    });
+
+    const targetStage = await prisma.kanbanStage.findFirst({
+      where: { organizationId, slug: "awaiting_data" },
+    });
+    if (targetStage && canonicalStageSlug(conversation.lead?.stage?.slug) === "new_lead") {
+      await prisma.lead.update({
+        where: { id: conversation.leadId },
+        data: { stageId: targetStage.id },
+      });
+    }
+
+    await prisma.notification.create({
+      data: {
+        organizationId,
+        type: "NEW_LEAD",
+        title: "Triagem concluída — novo lead qualificado",
+        message: `A IA concluiu a triagem de ${conversation.phoneNumber}. Caso pronto para análise.`,
+        metadata: { conversationId, leadId: conversation.leadId },
+      },
+    });
   }
 
   // ── Transferência para humano ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ export interface AIMessage {
 export interface AIResponse {
   content: string;
   shouldTransferToHuman: boolean;
+  triageComplete: boolean;
   qualifiedData?: {
     name?: string;
     phone?: string;
@@ -53,11 +54,17 @@ export async function runAIChat(
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
     responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
 
-  const cleanContent = responseContent.replace("[TRANSFERIR_PARA_HUMANO]", "").trim();
+  const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
+
+  const cleanContent = responseContent
+    .replace("[TRANSFERIR_PARA_HUMANO]", "")
+    .replace("[TRIAGEM COMPLETA]", "")
+    .trim();
 
   return {
     content: cleanContent,
     shouldTransferToHuman: shouldTransfer,
+    triageComplete,
     qualifiedData,
   };
 }
@@ -72,31 +79,36 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
     : "";
 
   const instructions = clientContext
-    ? `\nINSTRUÇÕES OBRIGATÓRIAS:
+    ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
 - Este é um cliente existente do escritório. Trate-o com prioridade e pelo nome.
 - Você pode informar sobre processos e movimentações usando os dados acima.
-- Nunca forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
-- Nunca marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
+- NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
+- NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
+- NUNCA mencione valores, honorários ou garanta resultados.
+- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA pergunte se o cliente já tem advogado.
 - Se o cliente precisar de atendimento urgente ou quiser falar com a equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
-      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento — não é primeiro contato no WhatsApp):
-- Esta pessoa **já está em contato** com o escritório; pode haver histórico de mensagens acima. **Não** inicie um cadastro forçado como se fosse a primeira conversa.
-- Responda educadamente ao que ela perguntou sem reiniciar a triagem do zero, a não ser que faltem dados essenciais.
-- Nunca prometa resultado, parecer jurídico definitivo, horário, data ou valores. Se precisar de dado concreto que não está no histórico, diga que a equipe retornará pelo WhatsApp e use [TRANSFERIR_PARA_HUMANO] se for urgente.
-- O escritório atua EXCLUSIVAMENTE com Direito Previdenciário, Trabalhista e Acidente de Trabalho. Se o assunto for de outra área (Cível, Família, Criminal, etc.), informe educadamente que o escritório não atua nessa área.
-- Responda em português brasileiro, empático e profissional, máximo 3 frases.`
-      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — lead frio):
-- Nunca forneça orientação jurídica específica ou parecer sobre o mérito do caso.
-- O escritório atua EXCLUSIVAMENTE com Direito Previdenciário, Trabalhista e Acidente de Trabalho. Se o assunto NÃO for um destes, informe imediatamente que o escritório não atua nessa área e oriente a procurar profissional especializado. Não prossiga com triagem.
-- Colete as seguintes informações nesta ordem: nome completo, motivo do contato, área do problema e um breve resumo.
-- Se o cliente ainda não informou o nome, pergunte o nome antes de qualquer outra coisa. Nunca assuma ou invente o nome.
-- Nunca marque consultas, reuniões, ligações ou confirme horários. Diga que a equipe jurídica retornará pelo WhatsApp.
-- Nunca informe valores ou honorários.
-- Quando tiver nome + área compatível + resumo, informe que a equipe jurídica irá analisar e retornar pelo WhatsApp.
-- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final da sua resposta.
-- Responda sempre em português brasileiro, de forma empática e profissional.
-- Seja conciso — máximo 3 frases por resposta.`;
+      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
+- Esta pessoa já está em contato com o escritório. NÃO reinicie a triagem do zero; retome exatamente de onde o histórico parou.
+- Continue seguindo o FLUXO definido acima a partir da próxima etapa pendente.
+- Ao concluir a triagem, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
+- NUNCA mencione valores, honorários ou garanta resultados.
+- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA pergunte se o cliente já tem advogado.
+- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
+- Responda em português brasileiro, empático e profissional.`
+      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
+- Siga o FLUXO definido acima, uma etapa por vez. Nunca pule etapas nem junte perguntas.
+- Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
+- NUNCA mencione valores, honorários ou garanta resultados.
+- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA pergunte se o cliente já tem advogado.
+- NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
+- NUNCA marque consultas, reuniões, ligações ou confirme horários.
+- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
+- Responda sempre em português brasileiro, de forma empática e profissional.`;
 
   return `${base}${clientSection}${instructions}${mediaInstruction}`;
 }
@@ -116,26 +128,27 @@ async function extractQualifiedDataWithAI(
     .concat(userMessage)
     .join("\n");
 
-  // CPF e e-mail são mais confiáveis via regex — mantém para não desperdiçar tokens
+  // CPF via regex (mais confiável que IA para formato estruturado)
   const cpfMatch = allUserText.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
   const cpf = cpfMatch ? cpfMatch[0].replace(/\D/g, "") : undefined;
-  const emailMatch = allUserText.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
 
   const systemPrompt = `Você é um extrator de dados de conversas jurídicas. Analise o histórico e retorne APENAS um JSON válido.
 
 REGRAS CRÍTICAS:
 - Só preencha "name" se o cliente disse o próprio nome de forma explícita e direta (ex: "me chamo Ana", "sou o Carlos", "meu nome é..."). NUNCA infira, suponha ou invente um nome.
 - Se o nome não foi dito claramente, omita o campo "name" completamente.
+- Só preencha "email" se o cliente informou o próprio e-mail de forma explícita (ex: "meu e-mail é...", "pode me mandar para...@..."). NUNCA extraia e-mails que apareçam como exemplos, contexto ou de terceiros.
 - Só preencha "legalArea" se o tipo do problema jurídico ficou claro na conversa.
 - Só preencha "caseSummary" se há informações suficientes para um resumo real.
 
 Campos possíveis (omita os que não tiver certeza):
 {
   "name": "nome exato como o cliente disse",
+  "email": "e-mail informado pelo próprio cliente",
   "phone": "telefone alternativo informado pelo cliente",
   "legalArea": "Direito Trabalhista | Direito Previdenciário | Acidente de Trabalho",
   "caseSummary": "resumo objetivo em 1-2 frases",
-  "score": número 0-100 (nome+área+resumo completos = 100)
+  "score": número 0-100 (nome+e-mail+área+resumo completos = 100)
 }
 Retorne APENAS o JSON, sem markdown.`;
 
@@ -160,15 +173,14 @@ Retorne APENAS o JSON, sem markdown.`;
     return {
       name: parsed.name || undefined,
       phone: parsed.phone || undefined,
-      email: emailMatch?.[0],
+      email: parsed.email || undefined,
       cpf,
       legalArea: parsed.legalArea || undefined,
       caseSummary: parsed.caseSummary || undefined,
       score: typeof parsed.score === "number" ? parsed.score : 0,
     };
   } catch {
-    // Fallback sem IA: pelo menos garante CPF e email
-    return { cpf, email: emailMatch?.[0], score: 0 };
+    return { cpf, score: 0 };
   }
 }
 

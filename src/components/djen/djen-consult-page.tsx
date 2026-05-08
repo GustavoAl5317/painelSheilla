@@ -147,29 +147,34 @@ export function DjenConsultPage({ processos }: Props) {
     setUpdateCardState({});
     setLinked({});
 
-    const res = await fetch("/api/djen-consult", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ oabNumero: oabNumero.trim(), oabUf, dataInicio, dataFim }),
-    });
-    const data = await res.json();
-    setLoading(false);
+    try {
+      const res = await fetch("/api/djen-consult", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oabNumero: oabNumero.trim(), oabUf, dataInicio, dataFim }),
+      });
+      const data = await res.json();
 
-    if (!res.ok) { setError(data.error ?? "Erro ao consultar."); return; }
+      if (!res.ok) { setError(data.error ?? "Erro ao consultar."); return; }
 
-    const raw: Publication[] = data.publications ?? [];
-    const seen = new Set<number>();
-    const pubs = raw.filter(p => { if (seen.has(p.comunicaId)) return false; seen.add(p.comunicaId); return true; });
-    setPublications(pubs);
+      const raw: Publication[] = data.publications ?? [];
+      const seen = new Set<number>();
+      const pubs = raw.filter(p => { if (seen.has(p.comunicaId)) return false; seen.add(p.comunicaId); return true; });
+      setPublications(pubs);
 
-    // Verifica vínculos já existentes
-    if (pubs.length > 0) {
-      const ids = pubs.map(p => p.comunicaId).join(",");
-      const lRes = await fetch(`/api/djen-consult/linked?comunicaIds=${ids}`);
-      if (lRes.ok) {
-        const lData = await lRes.json();
-        setLinked(lData.linked ?? {});
+      // Verifica vínculos já existentes
+      if (pubs.length > 0) {
+        const ids = pubs.map(p => p.comunicaId).join(",");
+        const lRes = await fetch(`/api/djen-consult/linked?comunicaIds=${ids}`);
+        if (lRes.ok) {
+          const lData = await lRes.json();
+          setLinked(lData.linked ?? {});
+        }
       }
+    } catch {
+      setError("Erro de conexão. Verifique sua internet e tente novamente.");
+    } finally {
+      setLoading(false);
     }
   }
 

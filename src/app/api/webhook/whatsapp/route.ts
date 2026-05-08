@@ -243,7 +243,7 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
-  const aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia);
+  const aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia, msg.id);
 
   if (!aiResult) {
     console.log(`[Webhook] AI não retornou resultado (Configuração inativa ou erro no provider).`);

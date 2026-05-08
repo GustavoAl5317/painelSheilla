@@ -59,10 +59,10 @@ export function mapItemToPub(item: ComunicacaoAPIItem) {
   const processo = item.numeroprocessocommascara || item.numero_processo;
   const cpfMatches = raw.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g) ?? [];
   const cpfs = [...new Set(cpfMatches.map(c => c.replace(/\D/g, "")))];
-  const iso = item.data_disponibilizacao?.trim() ?? "";
-  let dataPublicacao = item.datadisponibilizacao?.trim() ?? "";
-  if (!dataPublicacao && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    const [y, m, d] = iso.split("-");
+  const isoDate = (item.datadisponibilizacao ?? item.data_disponibilizacao ?? "").trim();
+  let dataPublicacao = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    const [y, m, d] = isoDate.split("-");
     dataPublicacao = `${d}/${m}/${y}`;
   }
   if (!dataPublicacao) dataPublicacao = new Date().toLocaleDateString("pt-BR");
@@ -128,78 +128,31 @@ export async function fetchComunicacoesOAB(
   dataInicio: string,
   dataFim: string
 ): Promise<ComunicacaoAPIItem[]> {
-  const all: ComunicacaoAPIItem[] = [];
-  // Tamanho máximo por página reduz o número total de requisições
-  const size = 100;
-  let page = 0;
+  const url = new URL(COMUNICA_API);
+  url.searchParams.set("numeroOab", numero);
+  if (uf) url.searchParams.set("siglaUf", uf);
+  url.searchParams.set("dataDisponibilizacaoInicio", dataInicio);
+  url.searchParams.set("dataDisponibilizacaoFim", dataFim);
 
-  for (;;) {
-    // Pausa entre páginas para não esgotar o rate limit (20 req/janela)
-    if (page > 0) await new Promise(r => setTimeout(r, 1500));
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    },
+  });
 
-    const url = new URL(COMUNICA_API);
-    url.searchParams.set("numeroOab", numero);
-    if (uf) url.searchParams.set("ufOab", uf);
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("size", String(size));
-
-    const res = await new Promise<{ status: number, ok: boolean, text: () => Promise<string>, json: () => Promise<any> }>((resolve, reject) => {
-      const https = require("https");
-      const req = https.request(url.toString(), {
-        method: "GET",
-        headers: {
-          "Accept": "application/json, text/plain, */*",
-          "Accept-Language": "pt-BR,pt;q=0.9",
-          "Connection": "keep-alive",
-          "Origin": "https://comunica.pje.jus.br",
-          "Referer": "https://comunica.pje.jus.br/",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        }
-      }, (response: any) => {
-        let body = "";
-        response.on("data", (chunk: any) => body += chunk);
-        response.on("end", () => {
-          resolve({
-            status: response.statusCode,
-            ok: response.statusCode >= 200 && response.statusCode < 300,
-            text: async () => body,
-            json: async () => JSON.parse(body)
-          });
-        });
-      });
-      req.on("error", reject);
-      req.end();
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`);
-    }
-
-    const data = (await res.json()) as ComunicacaoAPIResponse;
-    if (data.status && data.status !== "success") {
-      throw new Error(data.message || "Resposta inesperada da API de comunicações");
-    }
-    if (!Array.isArray(data.items)) {
-      throw new Error("Resposta da API sem lista de itens");
-    }
-    if (data.items.length === 0) break;
-
-    // Filtra por data localmente (API não aceita parâmetros de data)
-    const filtered = data.items.filter(item => {
-      const d = (item.data_disponibilizacao ?? item.datadisponibilizacao ?? "").slice(0, 10);
-      return d >= dataInicio && d <= dataFim;
-    });
-    all.push(...filtered);
-
-    if (data.items.length < size) break;
-    // Para se os itens mais antigos da página já estão antes do intervalo
-    const oldest = (data.items[data.items.length - 1]?.data_disponibilizacao ?? "").slice(0, 10);
-    if (oldest && oldest < dataInicio) break;
-    page += 1;
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`);
   }
 
-  return all;
+  const data = (await res.json()) as ComunicacaoAPIResponse;
+  if (data.status && data.status !== "success") {
+    throw new Error(data.message || "Resposta inesperada da API de comunicações");
+  }
+
+  return Array.isArray(data.items) ? data.items : [];
 }
 
 /** CPF na publicação vem só com dígitos; no cadastro pode estar formatado. */

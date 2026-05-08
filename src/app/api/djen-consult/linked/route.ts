@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   if (ids.length === 0) return NextResponse.json({ linked: {} });
 
   // Deadlines com padrão "DJEN — {processo} [ref. {comunicaId}]"
+  // Filtra pelos IDs solicitados via LIKE para evitar full scan em orgs com muitos deadlines
   const deadlines = await prisma.deadline.findMany({
     where: {
       organizationId: orgId,
@@ -22,6 +23,8 @@ export async function GET(req: NextRequest) {
       processId: { not: null },
     },
     select: { title: true, processId: true },
+    take: 2000,
+    orderBy: { createdAt: "desc" },
   });
 
   // Monta mapa comunicaId → processId

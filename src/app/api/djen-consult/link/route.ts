@@ -66,6 +66,29 @@ export async function POST(req: NextRequest) {
     } catch { /* ignora falha de IA */ }
   }
 
+  // Deduplicação: cria deadline primeiro — se appendCaseCardEntry falhar depois,
+  // a próxima consulta não vai reprocessar essa publicação.
+  const deadlineTitle = `DJEN — ${processo} [ref. ${comunicaId}]`;
+  const existing = await prisma.deadline.findFirst({ where: { organizationId: orgId, title: deadlineTitle } });
+  if (!existing) {
+    const dueDate = new Date();
+    if (interpretation.diasPrazo) dueDate.setDate(dueDate.getDate() + interpretation.diasPrazo);
+
+    await prisma.deadline.create({
+      data: {
+        organizationId: orgId,
+        title: deadlineTitle,
+        description: [
+          `**Tipo:** ${interpretation.tipoMovimentacao}`,
+          siglaTribunal ? `**Tribunal:** ${siglaTribunal}` : "",
+          `**Resumo:** ${interpretation.resumo}`,
+        ].filter(Boolean).join("\n"),
+        dueDate,
+        processId,
+      },
+    });
+  }
+
   // Vincula cliente ao processo
   await prisma.process.update({
     where: { id: processId },
@@ -88,28 +111,6 @@ export async function POST(req: NextRequest) {
     content: cardText,
     processId,
   });
-
-  // Deduplicação: cria deadline para não reprocessar essa publicação
-  const deadlineTitle = `DJEN — ${processo} [ref. ${comunicaId}]`;
-  const existing = await prisma.deadline.findFirst({ where: { organizationId: orgId, title: deadlineTitle } });
-  if (!existing) {
-    const dueDate = new Date();
-    if (interpretation.diasPrazo) dueDate.setDate(dueDate.getDate() + interpretation.diasPrazo);
-
-    await prisma.deadline.create({
-      data: {
-        organizationId: orgId,
-        title: deadlineTitle,
-        description: [
-          `**Tipo:** ${interpretation.tipoMovimentacao}`,
-          siglaTribunal ? `**Tribunal:** ${siglaTribunal}` : "",
-          `**Resumo:** ${interpretation.resumo}`,
-        ].filter(Boolean).join("\n"),
-        dueDate,
-        processId,
-      },
-    });
-  }
 
   return NextResponse.json({
     ok: true,

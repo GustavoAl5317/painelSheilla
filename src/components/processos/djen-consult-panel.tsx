@@ -57,7 +57,7 @@ export function DjenConsultPanel({ processId }: Props) {
 
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [linking, setLinking] = useState<Record<number, boolean>>({});
-  const [linked, setLinked] = useState<Record<number, string>>({}); // comunicaId → clientName
+  const [linked, setLinked] = useState<Record<number, string>>({}); // comunicaId → clientId
 
   async function consultar() {
     if (!oabNumero.trim()) { setError("Informe o número da OAB."); return; }
@@ -91,7 +91,7 @@ export function DjenConsultPanel({ processId }: Props) {
     setLinking(prev => ({ ...prev, [pub.comunicaId]: false }));
 
     if (res.ok) {
-      setLinked(prev => ({ ...prev, [pub.comunicaId]: cliente.name }));
+      setLinked(prev => ({ ...prev, [pub.comunicaId]: cliente.id }));
     } else {
       const data = await res.json();
       setError(data.error ?? "Erro ao vincular cliente.");
@@ -252,12 +252,12 @@ export function DjenConsultPanel({ processId }: Props) {
                                   <div className="min-w-0">
                                     <p className="text-xs font-semibold text-gray-800 truncate">{cliente.name}</p>
                                     {cliente.cpf && (
-                                      <p className="text-[10px] text-gray-400 font-mono">{fmtCpf(cliente.cpf)}</p>
+                                      <p className="text-[10px] text-gray-400 font-mono">{fmtCpf(cliente.cpf.replace(/\D/g, ""))}</p>
                                     )}
                                   </div>
                                 </div>
 
-                                {linkedName === cliente.name ? (
+                                {linked[pub.comunicaId] === cliente.id ? (
                                   <div className="flex items-center gap-1.5 text-emerald-600 shrink-0">
                                     <CheckCircle2 className="h-4 w-4" />
                                     <span className="text-xs font-medium">Vinculado</span>
