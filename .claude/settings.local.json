@@ -13,7 +13,8 @@
       "Bash(ls .next)",
       "Read(//c/Users/GustavoAlvesSantana/OneDrive - INTERATELL/Documentos/AdvZap/**)",
       "Bash(xargs grep *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Read(//c/Users/GustavoAlvesSantana/.claude/projects/c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap/2ceb76f4-ac2d-481e-b033-cbffd272e4b9/tool-results/**)"
     ],
     "additionalDirectories": [
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",
