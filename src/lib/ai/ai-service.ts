@@ -79,6 +79,12 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
     : "";
 
   const antiHallucination = `
+REGRA DE RITMO — ABSOLUTA:
+- Envie APENAS UMA mensagem curta por vez. Faça UMA pergunta, aguarde a resposta, depois avance.
+- NUNCA faça duas perguntas na mesma mensagem.
+- NUNCA antecipe respostas do cliente nem pule etapas.
+- Máximo 3 frases por mensagem.
+
 REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA invente, suponha ou deduza informações que o cliente não disse explicitamente nesta conversa.
 - NUNCA confirme, repita ou valide dados (nome, processo, benefício, datas, valores, decisões) que não estejam no histórico desta conversa ou nos dados do cliente acima.

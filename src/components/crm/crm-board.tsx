@@ -308,7 +308,7 @@ export function CrmBoard({ initialBoards, organizationId }: CrmBoardProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100 bg-white shrink-0">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 px-4 sm:px-6 py-3 border-b border-gray-100 bg-white shrink-0">
         {/* Busca global */}
         <div className="relative flex-1 max-w-xs" ref={searchRef}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
@@ -372,7 +372,7 @@ export function CrmBoard({ initialBoards, organizationId }: CrmBoardProps) {
 
       {/* Painel de filtros */}
       {showFilters && (
-        <div className="flex items-center gap-4 px-6 py-2.5 bg-gray-50 border-b border-gray-100 shrink-0 flex-wrap">
+        <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6 py-2.5 bg-gray-50 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-1.5">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
             <span className="text-xs font-medium text-gray-500">Filtrar por:</span>
@@ -432,14 +432,14 @@ export function CrmBoard({ initialBoards, organizationId }: CrmBoardProps) {
       )}
 
       {/* Kanban */}
-      <div className="flex-1 overflow-x-auto">
+      <div className="flex-1 overflow-x-auto scrollbar-thin">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 p-6 h-full min-w-max items-start">
+          <div className="flex gap-3 p-4 sm:gap-4 sm:p-6 h-full min-w-max items-start">
             <SortableContext items={boards.map((b) => b.id)} strategy={horizontalListSortingStrategy}>
               {filteredBoards.map((board) => (
                 <CrmColumn

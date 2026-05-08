@@ -262,7 +262,7 @@ export function ChatShell() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside
-        className={cn("w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white", selectedId && "hidden md:flex")}
+        className={cn("w-full md:w-80 shrink-0 flex flex-col border-r border-gray-200 bg-white", selectedId && "hidden md:flex")}
       >
         <div className="p-3 border-b border-gray-100 flex items-center gap-2">
           <div className="relative flex-1">
@@ -445,14 +445,14 @@ export function ChatShell() {
                     disabled={togglingAi || selected.isBlocked}
                     onClick={() => void setConversationAiEnabled(!selected.aiEnabled)}
                     className={cn(
-                      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-30",
+                      "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-30",
                       selected.aiEnabled ? "bg-blue-600" : "bg-gray-200"
                     )}
                   >
                     <span
                       className={cn(
-                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition",
-                        selected.aiEnabled ? "translate-x-4" : "translate-x-0"
+                        "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition",
+                        selected.aiEnabled ? "translate-x-5" : "translate-x-0"
                       )}
                     />
                   </button>
@@ -494,7 +494,7 @@ export function ChatShell() {
               <div ref={bottomRef} />
             </div>
 
-            <footer className="p-3 bg-gray-100 border-t border-gray-200">
+            <footer className="p-2 sm:p-3 bg-gray-100 border-t border-gray-200">
               {selected.isBlocked ? (
                 <div className="bg-red-50 border border-red-100 p-3 rounded-lg text-center">
                   <p className="text-xs text-red-600 font-medium italic">
@@ -515,11 +515,11 @@ export function ChatShell() {
                       placeholder="Digite a mensagem…"
                       rows={1}
                       disabled={sending}
-                      className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px] max-h-32 disabled:opacity-60"
+                      className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] max-h-32 disabled:opacity-60"
                     />
                     <Button
                       size="icon"
-                      className="shrink-0"
+                      className="shrink-0 h-11 w-11"
                       onClick={() => void sendMessage()}
                       type="button"
                       disabled={sending || !input.trim()}

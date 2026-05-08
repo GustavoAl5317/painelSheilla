@@ -227,8 +227,8 @@ export function KanbanBoard({ initialStages, organizationId }: KanbanBoardProps)
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 px-4 sm:px-6 py-3 border-b border-gray-200 bg-white">
+        <div className="relative flex-1 sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="Buscar lead..."
@@ -237,21 +237,21 @@ export function KanbanBoard({ initialStages, organizationId }: KanbanBoardProps)
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Button size="sm">
+        <Button size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4" />
           Novo Lead
         </Button>
       </div>
 
       {/* Kanban columns */}
-      <div className="flex-1 overflow-x-auto">
+      <div className="flex-1 overflow-x-auto scrollbar-thin">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-4 p-6 h-full min-w-max items-start">
+          <div className="flex gap-3 p-4 sm:gap-4 sm:p-6 h-full min-w-max items-start">
             {filteredStages.map((stage) => (
               <KanbanColumn
                 key={stage.id}

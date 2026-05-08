@@ -14,7 +14,8 @@
       "Read(//c/Users/GustavoAlvesSantana/OneDrive - INTERATELL/Documentos/AdvZap/**)",
       "Bash(xargs grep *)",
       "Bash(npx tsx *)",
-      "Read(//c/Users/GustavoAlvesSantana/.claude/projects/c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap/2ceb76f4-ac2d-481e-b033-cbffd272e4b9/tool-results/**)"
+      "Read(//c/Users/GustavoAlvesSantana/.claude/projects/c--Users-GustavoAlvesSantana-OneDrive---INTERATELL-Documentos-AdvZap-advzap/2ceb76f4-ac2d-481e-b033-cbffd272e4b9/tool-results/**)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"sim, pode apagar tudo, menos os dados de perfil da doutora e config\" npx prisma db execute --stdin)"
     ],
     "additionalDirectories": [
       "c:\\Users\\GustavoAlvesSantana\\OneDrive - INTERATELL\\Documentos\\AdvZap\\advzap\\src\\app\\api\\crm\\cards\\[id]\\activities",

@@ -13,6 +13,7 @@ import { formatRelative } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { format } from "date-fns";
+import { Greeting } from "@/components/dashboard/greeting";
 import { ptBR } from "date-fns/locale";
 
 const PRIMARY = "#95304e";
@@ -40,8 +41,6 @@ export default async function DashboardPage() {
 
   const data = await getDashboardData(orgId);
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
 
   const statCards = [
     {
@@ -153,7 +152,7 @@ export default async function DashboardPage() {
                 </p>
               </div>
               <h2 className="text-2xl font-extrabold text-white tracking-tight">
-                {greeting}, {userName.split(" ")[0]}!
+                <Greeting name={userName.split(" ")[0]} />
               </h2>
               <p className="text-sm text-rose-200/70 mt-1">Aqui está o resumo do seu escritório hoje.</p>
             </div>
