@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
   const hasMedia = !!(imageUrl || documentUrl);
 
   // ── Busca ou cria conversa (atômico — evita race condition de duplicata) ──
-  let conversation = await prisma.conversation.findUnique({
-    where: { organizationId_phoneNumber: { organizationId: org.id, phoneNumber } },
+  let conversation = await prisma.conversation.findFirst({
+    where: { organizationId: org.id, phoneNumber },
   });
 
   if (!conversation) {
@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       // Unique constraint: outra requisição criou a conversa em paralelo — busca a existente
       if (e?.code === "P2002") {
-        conversation = await prisma.conversation.findUnique({
-          where: { organizationId_phoneNumber: { organizationId: org.id, phoneNumber } },
+        conversation = await prisma.conversation.findFirst({
+          where: { organizationId: org.id, phoneNumber },
         });
         // Lead órfão criado nesta requisição — remove para não poluir o kanban
         await prisma.lead.delete({ where: { id: lead.id } }).catch(() => {});
@@ -129,12 +129,14 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
-    // Echo da própria IA — ignora completamente
-    const aiEchoWindow = new Date(Date.now() - 30_000);
-    const isAiEcho = await prisma.message.findFirst({
-      where: { conversationId: conversation.id, isAI: true, content: messageContent, createdAt: { gte: aiEchoWindow } },
-      select: { id: true },
+    // Echo da própria IA — janela de 2 min, comparação por início do conteúdo (trim de espaços/quebras)
+    const aiEchoWindow = new Date(Date.now() - 120_000);
+    const recentAiMessages = await prisma.message.findMany({
+      where: { conversationId: conversation.id, isAI: true, createdAt: { gte: aiEchoWindow } },
+      select: { content: true },
     });
+    const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim();
+    const isAiEcho = recentAiMessages.some(m => normalizeMsg(m.content) === normalizeMsg(messageContent));
     if (isAiEcho) {
       console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
       return NextResponse.json({ ok: true, ignored: "ai_echo" });
