@@ -49,13 +49,22 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     body.type === "SentCallback" ||
     body.type === "sent";
 
-  const rawPhone =
-    str(body.phone) ??
-    str(body.from) ??
-    str(body.sender) ??
+  // Identifica o parceiro de chat (o OUTRO lado da conversa) — sempre o cliente,
+  // independente de quem enviou a mensagem.
+  //   Z-API:     body.phone é sempre o parceiro (cliente).
+  //   Evolution: body.key.remoteJid (ou body.data.key.remoteJid) é o parceiro.
+  //   Quando fromMe=true: NUNCA usar body.from / body.sender, que apontam para o
+  //   próprio operador — isso criaria uma conversa fantasma com o número dela.
+  const dataKey = (body as any).data?.key as { remoteJid?: unknown } | undefined;
+  const remoteJid =
     (typeof body.key === "object" && body.key !== null
       ? str((body.key as { remoteJid?: string }).remoteJid)
-      : null);
+      : null) ??
+    str(dataKey?.remoteJid);
+
+  const rawPhone = fromMe
+    ? (str(body.phone) ?? remoteJid ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
+    : (str(body.phone) ?? remoteJid ?? str(body.from) ?? str(body.sender));
 
   if (!rawPhone) {
     return { skip: true, reason: "no_phone" };
@@ -67,9 +76,11 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
   if (
     rawPhone.includes("@g.us") ||
+    rawPhone.includes("@lid") ||
     rawPhone.includes("-group") ||
     rawPhone.includes("-") || // Grupos costumam ter hífen no ID (ex: 1234-5678)
     chatId.includes("@g.us") ||
+    chatId.includes("@lid") ||
     chatId.includes("-group") ||
     chatId.includes("-") ||
     body.isGroup === true ||
