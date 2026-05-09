@@ -152,13 +152,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "ai_resumed" });
     }
 
-    // "#" → pausa IA, não salva nem aparece no chat
-    if (cmd === "#") {
+    // "#" ou palavra-chave customizada → pausa IA, não salva nem aparece no chat
+    const customKeyword = (aiConfig as any)?.operatorKeyword?.trim();
+    if (cmd === "#" || (customKeyword && cmd.toLowerCase() === customKeyword.toLowerCase())) {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: { aiEnabled: false, operatorLastMessageAt: new Date() },
       });
-      console.log(`[webhook] operador pausou IA (conv=${conversation.id})`);
+      console.log(`[webhook] operador pausou IA (conv=${conversation.id}, cmd="${cmd}")`);
       return NextResponse.json({ ok: true, ai_paused: true });
     }
 

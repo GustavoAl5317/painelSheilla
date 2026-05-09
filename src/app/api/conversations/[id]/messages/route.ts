@@ -92,7 +92,12 @@ export async function POST(
     });
     await tx.conversation.update({
       where: { id: conversationId },
-      data: { lastMessageAt: new Date(), status: "OPEN" },
+      data: {
+        lastMessageAt: new Date(),
+        status: "OPEN",
+        aiEnabled: false,
+        operatorLastMessageAt: new Date(),
+      },
     });
     return msg;
   });
