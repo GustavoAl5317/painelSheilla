@@ -105,7 +105,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
       ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
-- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação, cidade/urgência).
+- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação).
 - Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas.
 - Se ainda não coletou nome, e-mail, área ou situação, colete agora — mesmo que a conversa seja antiga.
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.

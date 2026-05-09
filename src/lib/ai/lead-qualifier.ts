@@ -244,15 +244,19 @@ export async function processIncomingMessage(
       ? "established"
       : "cold";
 
-  // Se a mensagem sugere conversa em andamento mas não há histórico nem cadastro,
-  // o sistema não tem contexto anterior — avisa que a doutora responderá em breve.
+  // Cenário 1: mensagem sugere conversa em andamento mas não há histórico nem cadastro.
   const semContexto =
     leadMode === "established" &&
     history.length === 0 &&
     !clientContext &&
     textSuggestsOngoing(userMessage);
 
-  if (semContexto) {
+  // Cenário 2: a doutora já respondeu mensagens nesta conversa, mas a IA nunca participou.
+  // A IA não tem contexto da conversa em andamento — não deve atrapalhar pedindo dados de
+  // triagem (nome, e-mail, etc). Avisa que a doutora retorna em breve e transfere.
+  const conversaJaRolando = operatorIntervened && !hadAiReply;
+
+  if (semContexto || conversaJaRolando) {
     return {
       content: "Olá! Recebi sua mensagem. Nossa equipe já foi notificada e a doutora responderá em breve. 😊",
       shouldTransferToHuman: true,

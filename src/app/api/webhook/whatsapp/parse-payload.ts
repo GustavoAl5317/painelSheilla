@@ -23,30 +23,48 @@ function str(v: unknown): string | null {
 }
 
 export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedInbound | { skip: true; reason: string } {
-  // Eventos de status (entrega, leitura, envio) — nunca são mensagens de conteúdo
+  // Eventos puros de status (entrega, leitura) — nunca contêm conteúdo de mensagem.
+  // SentCallback NÃO está aqui porque, em alguns providers (Z-API), ele traz o texto
+  // digitado pelo operador no app — o filtro "no_content" abaixo descarta o caso
+  // em que é apenas confirmação de envio.
   if (
     body.type === "DeliveredCallback" ||
     body.type === "ReadCallback" ||
-    body.type === "MessageStatusCallback" ||
-    body.type === "SentCallback" ||
-    body.type === "sent"
+    body.type === "MessageStatusCallback"
   ) {
     return { skip: true, reason: "status_event" };
   }
 
+  // fromMe pode aparecer em vários formatos dependendo do provider:
+  //   Z-API:     body.fromMe / body.isFromMe
+  //   Evolution: body.key.fromMe ou body.data.key.fromMe
+  //   Outros:    body.direction = "out" / "OUTBOUND"
+  const key = (body.key ?? (body as any).data?.key) as { fromMe?: unknown } | undefined;
   const fromMe =
-    body.fromMe === true ||
-    body.isFromMe === true ||
+    body.fromMe === true || body.fromMe === "true" ||
+    body.isFromMe === true || body.isFromMe === "true" ||
+    key?.fromMe === true || key?.fromMe === "true" ||
     body.direction === "out" ||
-    body.direction === "OUTBOUND";
+    body.direction === "OUTBOUND" ||
+    body.type === "SentCallback" ||
+    body.type === "sent";
 
-  const rawPhone =
-    str(body.phone) ??
-    str(body.from) ??
-    str(body.sender) ??
+  // Identifica o parceiro de chat (o OUTRO lado da conversa) — sempre o cliente,
+  // independente de quem enviou a mensagem.
+  //   Z-API:     body.phone é sempre o parceiro (cliente).
+  //   Evolution: body.key.remoteJid (ou body.data.key.remoteJid) é o parceiro.
+  //   Quando fromMe=true: NUNCA usar body.from / body.sender, que apontam para o
+  //   próprio operador — isso criaria uma conversa fantasma com o número dela.
+  const dataKey = (body as any).data?.key as { remoteJid?: unknown } | undefined;
+  const remoteJid =
     (typeof body.key === "object" && body.key !== null
       ? str((body.key as { remoteJid?: string }).remoteJid)
-      : null);
+      : null) ??
+    str(dataKey?.remoteJid);
+
+  const rawPhone = fromMe
+    ? (str(body.phone) ?? remoteJid ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
+    : (str(body.phone) ?? remoteJid ?? str(body.from) ?? str(body.sender));
 
   if (!rawPhone) {
     return { skip: true, reason: "no_phone" };
@@ -58,9 +76,11 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
   if (
     rawPhone.includes("@g.us") ||
+    rawPhone.includes("@lid") ||
     rawPhone.includes("-group") ||
     rawPhone.includes("-") || // Grupos costumam ter hífen no ID (ex: 1234-5678)
     chatId.includes("@g.us") ||
+    chatId.includes("@lid") ||
     chatId.includes("-group") ||
     chatId.includes("-") ||
     body.isGroup === true ||
