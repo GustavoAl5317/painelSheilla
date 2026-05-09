@@ -23,22 +23,31 @@ function str(v: unknown): string | null {
 }
 
 export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedInbound | { skip: true; reason: string } {
-  // Eventos de status (entrega, leitura, envio) — nunca são mensagens de conteúdo
+  // Eventos puros de status (entrega, leitura) — nunca contêm conteúdo de mensagem.
+  // SentCallback NÃO está aqui porque, em alguns providers (Z-API), ele traz o texto
+  // digitado pelo operador no app — o filtro "no_content" abaixo descarta o caso
+  // em que é apenas confirmação de envio.
   if (
     body.type === "DeliveredCallback" ||
     body.type === "ReadCallback" ||
-    body.type === "MessageStatusCallback" ||
-    body.type === "SentCallback" ||
-    body.type === "sent"
+    body.type === "MessageStatusCallback"
   ) {
     return { skip: true, reason: "status_event" };
   }
 
+  // fromMe pode aparecer em vários formatos dependendo do provider:
+  //   Z-API:     body.fromMe / body.isFromMe
+  //   Evolution: body.key.fromMe ou body.data.key.fromMe
+  //   Outros:    body.direction = "out" / "OUTBOUND"
+  const key = (body.key ?? (body as any).data?.key) as { fromMe?: unknown } | undefined;
   const fromMe =
     body.fromMe === true || body.fromMe === "true" ||
     body.isFromMe === true || body.isFromMe === "true" ||
+    key?.fromMe === true || key?.fromMe === "true" ||
     body.direction === "out" ||
-    body.direction === "OUTBOUND";
+    body.direction === "OUTBOUND" ||
+    body.type === "SentCallback" ||
+    body.type === "sent";
 
   const rawPhone =
     str(body.phone) ??
