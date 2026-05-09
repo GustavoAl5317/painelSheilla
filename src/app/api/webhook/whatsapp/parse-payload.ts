@@ -35,8 +35,8 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   }
 
   const fromMe =
-    body.fromMe === true ||
-    body.isFromMe === true ||
+    body.fromMe === true || body.fromMe === "true" ||
+    body.isFromMe === true || body.isFromMe === "true" ||
     body.direction === "out" ||
     body.direction === "OUTBOUND";
 
