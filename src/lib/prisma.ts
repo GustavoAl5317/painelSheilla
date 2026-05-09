@@ -17,8 +17,20 @@ function createPrismaClient() {
   });
 }
 
-const globalForPrisma = globalThis as unknown as { prismaDb: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prismaDb?: PrismaClient };
 
-export const prisma = globalForPrisma.prismaDb ?? createPrismaClient();
+// Lazy proxy: o cliente só é instanciado no primeiro uso. Isso evita que `next build`
+// quebre durante "Collecting page data" quando DATABASE_URL não está disponível
+// (ex.: preview deploys), já que o módulo é importado por rotas dinâmicas.
+function getClient(): PrismaClient {
+  if (!globalForPrisma.prismaDb) {
+    globalForPrisma.prismaDb = createPrismaClient();
+  }
+  return globalForPrisma.prismaDb;
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prismaDb = prisma;
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getClient(), prop, receiver);
+  },
+});
