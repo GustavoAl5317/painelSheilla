@@ -139,7 +139,15 @@ async function processWebhook(organizationId: string, payload: any) {
       if (conv) {
         const firstName = linkedClient!.name.split(" ")[0];
         const msg = `📋 *Nova movimentação judicial*\n\nOlá ${firstName}! Identificamos uma nova movimentação no seu processo.\n\nQualquer dúvida, é só perguntar aqui!`;
-        sendWhatsAppMessage(organizationId, conv.phoneNumber, msg).catch(() => {});
+        sendWhatsAppMessage(organizationId, conv.phoneNumber, msg)
+          .then(() =>
+            // Pausa a IA — mensagem vem do escritório/sistema, não da IA.
+            prisma.conversation.update({
+              where: { id: conv.id },
+              data: { aiEnabled: false, operatorLastMessageAt: new Date() },
+            })
+          )
+          .catch(() => {});
       }
     }
   }

@@ -144,6 +144,12 @@ async function maybeNotifyClientFromCaseCard(
 
   try {
     await sendWhatsAppMessage(organizationId, conv.phoneNumber, `📋 *Atualização do seu caso*\n\n${message}`);
+    // Pausa a IA na conversa — atualização vinda do escritório, não da IA.
+    // Evita que a IA responda em paralelo gerando mensagens conflitantes.
+    await prisma.conversation.update({
+      where: { id: conv.id },
+      data: { aiEnabled: false, operatorLastMessageAt: new Date() },
+    });
   } catch (err) {
     console.error("[case-card] WhatsApp failed:", (err as Error).message);
     return false;

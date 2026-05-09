@@ -129,17 +129,23 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
-    // Echo da própria IA — janela de 2 min, comparação por início do conteúdo (trim de espaços/quebras)
-    const aiEchoWindow = new Date(Date.now() - 120_000);
-    const recentAiMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id, isAI: true, createdAt: { gte: aiEchoWindow } },
-      select: { content: true },
-    });
-    const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim();
-    const isAiEcho = recentAiMessages.some(m => normalizeMsg(m.content) === normalizeMsg(messageContent));
-    if (isAiEcho) {
-      console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
-      return NextResponse.json({ ok: true, ignored: "ai_echo" });
+    // Echo da própria IA — escopo: somente mensagens IA na MESMA conversa, janela de 60s.
+    // Comandos "#" e "." são checados ANTES para garantir que nunca sejam tratados
+    // como echo (mesmo no caso improvável da IA ter enviado esse texto).
+    const isCommand = cmd === "#" || cmd === ".";
+    if (!isCommand) {
+      const aiEchoWindow = new Date(Date.now() - 60_000);
+      const recentAiMessages = await prisma.message.findMany({
+        where: { conversationId: conversation.id, isAI: true, createdAt: { gte: aiEchoWindow } },
+        select: { content: true },
+      });
+      const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim();
+      const normalizedIncoming = normalizeMsg(messageContent);
+      const isAiEcho = recentAiMessages.some(m => normalizeMsg(m.content) === normalizedIncoming);
+      if (isAiEcho) {
+        console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
+        return NextResponse.json({ ok: true, ignored: "ai_echo" });
+      }
     }
 
     // "." → reativa IA, não salva nem envia ao cliente
@@ -195,8 +201,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "duplicate" });
     }
   } else {
-    // Sem externalId: evita duplicata por conteúdo idêntico nos últimos 10s
-    const dedupeWindow = new Date(Date.now() - 10_000);
+    // Sem externalId: dedup só dentro da MESMA conversa (phoneNumber implícito) e
+    // janela curta de 5s, suficiente para retentativas de webhook do provider mas
+    // permitindo operadora repetir mensagem legítima após poucos segundos.
+    const dedupeWindow = new Date(Date.now() - 5_000);
     const existing = await prisma.message.findFirst({
       where: {
         conversationId: conversation.id,
@@ -207,6 +215,7 @@ export async function POST(req: NextRequest) {
       select: { id: true },
     });
     if (existing) {
+      console.log(`[webhook] mensagem duplicada descartada (conv=${conversation.id}, phone=${phoneNumber})`);
       return NextResponse.json({ ok: true, ignored: "duplicate_content" });
     }
   }
@@ -256,10 +265,33 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
-  const aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia, msg.id);
+  let aiResult: Awaited<ReturnType<typeof processIncomingMessage>> = null;
+  let aiError: Error | null = null;
+  try {
+    aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia, msg.id);
+  } catch (err) {
+    aiError = err as Error;
+    console.error(`[Webhook] processIncomingMessage falhou:`, aiError.message);
+  }
 
   if (!aiResult) {
     console.log(`[Webhook] AI não retornou resultado (Configuração inativa ou erro no provider).`);
+
+    // Notifica operador para que a mensagem do cliente não fique sem resposta silenciosamente.
+    // Só cria a notificação se a IA estava ativa (caso contrário, é normal não responder).
+    if (freshConv?.aiEnabled) {
+      const preview = messageContent.length > 80 ? messageContent.slice(0, 80) + "…" : messageContent;
+      await prisma.notification.create({
+        data: {
+          organizationId: org.id,
+          type: "NEW_MESSAGE",
+          title: "IA não respondeu — verificar conversa",
+          message: `Cliente ${phoneNumber} enviou: "${preview}". A IA não retornou resposta${aiError ? ` (${aiError.message})` : ""}.`,
+          metadata: { conversationId: conversation.id, error: aiError?.message ?? null },
+        },
+      }).catch(e => console.error("[webhook] falha ao criar notification:", e));
+    }
+
     return NextResponse.json({ ok: true, ai: "no_result" });
   }
 
