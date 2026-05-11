@@ -88,11 +88,14 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "group_message" };
   }
 
-  // Normaliza para somente dígitos
-  const phone = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
+  // LID = WhatsApp LinkedID (modo privacidade): preservar o sufixo @lid para que
+  // o sender saiba mandar de volta no formato correto (Z-API exige xxxxxx@lid).
+  const isLid = rawPhone.includes("@lid");
+  const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
+  const phone = isLid ? `${digits}@lid` : digits;
 
   // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
-  if (phone.length > 15) {
+  if (digits.length > 15) {
     return { skip: true, reason: "group_id_length" };
   }
 

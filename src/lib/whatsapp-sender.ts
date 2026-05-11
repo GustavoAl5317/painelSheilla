@@ -2,6 +2,13 @@ import "server-only";
 import { resolveCredential } from "@/lib/credentials";
 
 function normalizePhone(raw: string): string {
+  // LID (LinkedID — modo privacidade do WhatsApp) não é número de telefone:
+  // é um identificador opaco. Z-API roteia o envio quando recebe xxxxxx@lid,
+  // então preservamos o sufixo e NÃO prependemos DDI.
+  if (raw.includes("@lid")) {
+    const digits = raw.replace(/@.*$/, "").replace(/\D/g, "");
+    return `${digits}@lid`;
+  }
   // Remove tudo que não for dígito e sufixos do WhatsApp (@c.us, @g.us)
   const digits = raw.replace(/@.*$/, "").replace(/\D/g, "");
   // Garante DDI 55 (Brasil)
