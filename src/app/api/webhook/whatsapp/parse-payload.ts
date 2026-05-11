@@ -62,9 +62,20 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
       : null) ??
     str(dataKey?.remoteJid);
 
-  const rawPhone = fromMe
-    ? (str(body.phone) ?? remoteJid ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
-    : (str(body.phone) ?? remoteJid ?? str(body.from) ?? str(body.sender));
+  // chatLid (Z-API) é o identificador estável do chat quando o contato usa
+  // privacidade (LID). Sem ele, a mesma conversa apareceria às vezes como LID
+  // (ex.: comando "#" do operador) e às vezes como número real (ex.: eco da IA,
+  // mensagem do cliente), criando duas conversas e fazendo a pausa não bater.
+  // Só sobrescrevemos quando chatLid for de fato uma LID — chats normais
+  // continuam usando body.phone.
+  const chatLidRaw = str((body as any).chatLid);
+  const hasLidIdentifier = chatLidRaw?.includes("@lid") ?? false;
+
+  const rawPhone = hasLidIdentifier
+    ? chatLidRaw!
+    : (fromMe
+      ? (str(body.phone) ?? remoteJid ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
+      : (str(body.phone) ?? remoteJid ?? str(body.from) ?? str(body.sender)));
 
   if (!rawPhone) {
     return { skip: true, reason: "no_phone" };
