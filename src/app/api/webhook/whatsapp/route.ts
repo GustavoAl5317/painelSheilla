@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       where: { id: conversation.leadId },
       select: { phone: true, name: true },
     });
-    if (lead && (lead.phone.endsWith("@lid") || lead.phone === phoneNumber)) {
+    if (lead?.phone && (lead.phone.endsWith("@lid") || lead.phone === phoneNumber)) {
       await prisma.lead.update({
         where: { id: conversation.leadId },
         data: {
