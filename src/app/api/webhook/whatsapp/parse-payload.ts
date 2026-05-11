@@ -105,8 +105,10 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
   const phone = isLid ? `${digits}@lid` : digits;
 
-  // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
-  if (digits.length > 15) {
+  // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14.
+  // LIDs (modo privacidade WhatsApp) também têm 18-19 dígitos, mas NÃO são grupos —
+  // são chats individuais e devem passar. Só aplica o corte por tamanho para não-LID.
+  if (!isLid && digits.length > 15) {
     return { skip: true, reason: "group_id_length" };
   }
 
