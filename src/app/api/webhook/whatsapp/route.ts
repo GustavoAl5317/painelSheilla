@@ -23,14 +23,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  // LOG TEMPORÁRIO — remover após diagnóstico
-  if (body.fromMe === true || body.isFromMe === true) {
+  // LOG DIAGNÓSTICO — registra TODO evento recebido para investigar mensagens da operadora
+  const evtType = String(body.type ?? "");
+  const evtFromMe = body.fromMe ?? body.isFromMe ?? (body as any).key?.fromMe ?? (body as any).data?.key?.fromMe;
+  console.log(`[webhook] IN type=${evtType} fromMe=${evtFromMe} phone=${body.phone} keys=${Object.keys(body).join(",")}`);
+  if (evtFromMe === true || evtFromMe === "true" || evtType === "SentCallback") {
     console.log("[webhook] fromMe body:", JSON.stringify(body, null, 2));
   }
 
   const parsed = parseWhatsAppWebhookBody(body);
   if ("skip" in parsed) {
-    console.log("[webhook] skipped:", parsed.reason, "| type:", body.type, "| fromMe:", body.fromMe);
+    console.log(`[webhook] skipped: ${parsed.reason} | type=${evtType} fromMe=${evtFromMe}`);
     return NextResponse.json({ ok: true, ignored: parsed.reason });
   }
 
