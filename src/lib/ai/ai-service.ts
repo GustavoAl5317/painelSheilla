@@ -72,7 +72,7 @@ export async function runAIChat(
 function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento inicial e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos."

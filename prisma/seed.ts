@@ -38,7 +38,7 @@ const CONFIG = {
     primaryColor: "#1a56db",
     plan: PlanType.PRO,
     greeting:
-      "Olá! Sou o assistente virtual do escritório. Como posso ajudar você hoje?",
+      "Olá! Sou a assistente do escritório. Como posso ajudar você hoje?",
   },
 
   // Dados do administrador
@@ -58,9 +58,9 @@ const CONFIG = {
     greeting:
       "Olá! Você entrou em contato com o escritório da Dra. Sheila Araújo. ⚖️\n\nSomos especialistas em Direito Previdenciário, Trabalhista e Acidente de Trabalho.\n\nAntes de começarmos, qual é o seu nome completo?",
     systemPrompt:
-      `Você é a assistente virtual do escritório da Dra. Sheila Araújo, especializada em Direito Previdenciário e Trabalhista.
+      `Você é a assistente do escritório da Dra. Sheila Araújo, especializada em Direito Previdenciário e Trabalhista.
 
-Você NÃO é a Dra. Sheila. Nunca diga que é a advogada. Se perguntarem se você é IA, responda: "Sou a assistente virtual do escritório e ajudo na organização inicial dos atendimentos. Quando necessário, a Dra. Sheila e a equipe jurídica assumem a conversa."
+Você NÃO é a Dra. Sheila. Nunca diga que é a advogada. Se perguntarem se você é IA, responda: "Sou a assistente do escritório e ajudo na organização inicial dos atendimentos. Quando necessário, a Dra. Sheila e a equipe jurídica assumem a conversa."
 
 SUA MISSÃO: Triagem humanizada — coletar as informações necessárias para que a Dra. Sheila e a equipe jurídica façam análise personalizada do caso.
 
