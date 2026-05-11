@@ -45,6 +45,29 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+// LID (xxxxxxxxxxxx@lid) é identificador opaco do WhatsApp para chats com
+// privacidade — não é telefone e nada significa para o usuário. Mostramos
+// "Contato (xxxx)" com os últimos 4 dígitos para diferenciar entre contatos.
+function isLidPhone(value: string | null | undefined): boolean {
+  return !!value && value.endsWith("@lid");
+}
+
+function prettyContact(value: string): string {
+  if (!isLidPhone(value)) return value;
+  const digits = value.replace(/@.*$/, "");
+  const tail = digits.slice(-4);
+  return `Contato ${tail}`;
+}
+
+function displayName(c: ConvRow): string {
+  if (c.globalName) return c.globalName;
+  const leadName = c.lead?.name;
+  if (leadName && !isLidPhone(leadName) && leadName !== c.phoneNumber) {
+    return leadName;
+  }
+  return prettyContact(c.phoneNumber);
+}
+
 export function ChatShell() {
   const [list, setList] = useState<ConvRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,7 +179,7 @@ export function ChatShell() {
   }, [selectedId]);
 
   const filtered = list.filter((c) => {
-    const name = (c.lead?.name ?? c.phoneNumber).toLowerCase();
+    const name = displayName(c).toLowerCase();
     return name.includes(search.toLowerCase()) || c.phoneNumber.includes(search);
   });
 
@@ -290,7 +313,7 @@ export function ChatShell() {
             <p className="py-10 text-center text-sm text-gray-400">Nenhuma conversa no banco ainda.</p>
           )}
           {filtered.map((c) => {
-            const name = c.globalName || (c.lead?.name ?? c.phoneNumber);
+            const name = displayName(c);
             const lastMsg = c.messages?.at(-1);
             const active = c.id === selectedId;
             return (
@@ -370,12 +393,12 @@ export function ChatShell() {
                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white text-xs font-bold",
                   selected.isBlocked ? "bg-gray-400" : "bg-green-500"
                 )}>
-                  {initials(selected.globalName || (selected.lead?.name === selected.phoneNumber ? selected.phoneNumber : (selected.lead?.name || selected.phoneNumber)))}
+                  {initials(displayName(selected))}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-gray-900">
-                      {selected.globalName || (selected.lead?.name === selected.phoneNumber ? selected.phoneNumber : (selected.lead?.name || selected.phoneNumber))}
+                      {displayName(selected)}
                       {selected.isBlocked && <span className="ml-2 text-red-500 font-bold text-xs">(BLOQUEADO)</span>}
                     </p>
                     <Badge variant={STATUS_CONFIG[selected.status]?.variant ?? "secondary"} className="text-[10px] py-0">
@@ -385,7 +408,9 @@ export function ChatShell() {
                       <span className="text-[11px] text-blue-500 font-medium">{selected.lead.legalArea}</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{selected.phoneNumber}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {isLidPhone(selected.phoneNumber) ? "Contato privado (WhatsApp)" : selected.phoneNumber}
+                  </p>
                 </div>
               </div>
 
