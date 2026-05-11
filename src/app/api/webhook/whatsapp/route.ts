@@ -10,18 +10,25 @@ import { resolveCredential } from "@/lib/credentials";
 
 export async function POST(req: NextRequest) {
   const orgSlug = req.nextUrl.searchParams.get("org");
+  console.log(`[webhook] HIT org=${orgSlug ?? "(missing)"}`);
   if (!orgSlug) return NextResponse.json({ error: "org é obrigatório" }, { status: 400 });
 
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return NextResponse.json({ error: "Organização não encontrada" }, { status: 404 });
+  if (!org) {
+    console.log(`[webhook] org slug não encontrado no banco: "${orgSlug}"`);
+    return NextResponse.json({ error: "Organização não encontrada" }, { status: 404 });
+  }
 
   let body: Record<string, unknown>;
   try {
     const raw = await req.json();
     body = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   } catch {
+    console.log("[webhook] JSON inválido");
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
+
+  console.log(`[webhook] type=${body.type ?? "(none)"} fromMe=${body.fromMe ?? body.isFromMe ?? "(none)"} phone=${body.phone ?? "(none)"}`);
 
   // LOG TEMPORÁRIO — remover após diagnóstico
   if (body.fromMe === true || body.isFromMe === true) {
