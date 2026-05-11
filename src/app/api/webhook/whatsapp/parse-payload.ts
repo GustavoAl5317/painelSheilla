@@ -5,6 +5,11 @@
 
 type ParsedInbound = {
   phone: string;
+  // Número real do cliente quando o chat usa LID (privacidade): a Z-API ainda
+  // expõe o telefone em body.phone mesmo quando o identificador estável é o
+  // chatLid. Guardamos separadamente para exibir no painel, sem mudar a
+  // identidade da conversa (que continua sendo o @lid para roteamento estável).
+  contactPhone: string | null;
   content: string;
   messageType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
   externalMessageId: string | null;
@@ -104,6 +109,23 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
   const phone = isLid ? `${digits}@lid` : digits;
 
+  // Para chats LID, tenta capturar o telefone real exposto pela Z-API em
+  // body.phone (sempre o parceiro do chat, mesmo com fromMe=true). Só aceita
+  // se for um telefone plausível (≤15 dígitos), descartando casos em que o
+  // provider colocou o próprio LID em body.phone.
+  let contactPhone: string | null = null;
+  if (isLid) {
+    const candidate = str(body.phone);
+    if (candidate && !candidate.includes("@lid")) {
+      const candDigits = candidate.replace(/@.*$/, "").replace(/\D/g, "");
+      if (candDigits.length > 0 && candDigits.length <= 15) {
+        contactPhone = candDigits;
+      }
+    }
+  } else {
+    contactPhone = digits;
+  }
+
   // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14.
   // LIDs (modo privacidade WhatsApp) também têm 18-19 dígitos, mas NÃO são grupos —
   // são chats individuais e devem passar. Só aplica o corte por tamanho para não-LID.
@@ -169,6 +191,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   return {
     phone,
+    contactPhone,
     content: content.trim(),
     messageType: isAudio ? "AUDIO" : isDocument ? "DOCUMENT" : isImage ? "IMAGE" : "TEXT",
     externalMessageId,

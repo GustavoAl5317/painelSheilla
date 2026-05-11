@@ -46,26 +46,57 @@ function initials(name: string) {
 }
 
 // LID (xxxxxxxxxxxx@lid) é identificador opaco do WhatsApp para chats com
-// privacidade — não é telefone e nada significa para o usuário. Mostramos
-// "Contato (xxxx)" com os últimos 4 dígitos para diferenciar entre contatos.
+// privacidade — não é telefone. Quando temos lead.phone com o número real
+// (capturado de body.phone no webhook), usamos ele. Caso contrário, mostramos
+// "Contato XXXX" com os últimos 4 dígitos do LID para diferenciar.
 function isLidPhone(value: string | null | undefined): boolean {
   return !!value && value.endsWith("@lid");
 }
 
-function prettyContact(value: string): string {
-  if (!isLidPhone(value)) return value;
-  const digits = value.replace(/@.*$/, "");
-  const tail = digits.slice(-4);
-  return `Contato ${tail}`;
+function formatBrPhone(digits: string): string {
+  const d = digits.replace(/\D/g, "");
+  // 5511999999999 → +55 11 99999-9999
+  if (d.length === 13 && d.startsWith("55")) {
+    return `+55 ${d.slice(2, 4)} ${d.slice(4, 9)}-${d.slice(9)}`;
+  }
+  if (d.length === 12 && d.startsWith("55")) {
+    return `+55 ${d.slice(2, 4)} ${d.slice(4, 8)}-${d.slice(8)}`;
+  }
+  return d;
+}
+
+function realPhoneFromLead(c: ConvRow): string | null {
+  const p = c.lead?.phone;
+  if (!p) return null;
+  if (isLidPhone(p)) return null;
+  const digits = p.replace(/\D/g, "");
+  if (digits.length === 0 || digits.length > 15) return null;
+  return digits;
 }
 
 function displayName(c: ConvRow): string {
   if (c.globalName) return c.globalName;
   const leadName = c.lead?.name;
   if (leadName && !isLidPhone(leadName) && leadName !== c.phoneNumber) {
+    const nameDigits = leadName.replace(/\D/g, "");
+    // Se lead.name for só o telefone bruto, formata bonito
+    if (nameDigits.length >= 10 && nameDigits.length <= 15 && nameDigits === leadName.replace(/\s/g, "").replace(/\D/g, "")) {
+      return formatBrPhone(nameDigits);
+    }
     return leadName;
   }
-  return prettyContact(c.phoneNumber);
+  const real = realPhoneFromLead(c);
+  if (real) return formatBrPhone(real);
+  // Sem número real ainda — mostra os 4 últimos dígitos do LID para diferenciar
+  const digits = c.phoneNumber.replace(/@.*$/, "");
+  return `Contato ${digits.slice(-4)}`;
+}
+
+function displaySubtitle(c: ConvRow): string {
+  const real = realPhoneFromLead(c);
+  if (real) return formatBrPhone(real);
+  if (isLidPhone(c.phoneNumber)) return "Contato privado (WhatsApp)";
+  return c.phoneNumber;
 }
 
 export function ChatShell() {
@@ -408,9 +439,7 @@ export function ChatShell() {
                       <span className="text-[11px] text-blue-500 font-medium">{selected.lead.legalArea}</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {isLidPhone(selected.phoneNumber) ? "Contato privado (WhatsApp)" : selected.phoneNumber}
-                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{displaySubtitle(selected)}</p>
                 </div>
               </div>
 

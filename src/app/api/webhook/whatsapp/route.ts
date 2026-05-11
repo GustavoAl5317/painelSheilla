@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
   });
 
   const phoneNumber = parsed.phone;
+  const contactPhone = parsed.contactPhone;
   let messageContent = parsed.content;
   const externalMessageId = parsed.externalMessageId;
   const messageType = parsed.messageType;
@@ -69,15 +70,18 @@ export async function POST(req: NextRequest) {
   });
 
   if (!conversation) {
+    // Para LID, o telefone real (contactPhone) é o que casa com Client.phone;
+    // o phoneNumber armazenado é o @lid (identificador estável de roteamento).
+    const leadPhone = contactPhone ?? phoneNumber;
     const [defaultStage, formerClient] = await Promise.all([
       prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
-      prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } }),
+      prisma.client.findFirst({ where: { organizationId: org.id, phone: leadPhone }, select: { name: true } }),
     ]);
 
     const lead = await prisma.lead.create({
       data: {
-        name: formerClient?.name ?? phoneNumber,
-        phone: phoneNumber,
+        name: formerClient?.name ?? leadPhone,
+        phone: leadPhone,
         source: "WHATSAPP",
         organizationId: org.id,
         stageId: defaultStage?.id,
@@ -113,9 +117,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "blocked_contact" });
   }
 
+  // ── Backfill: para LIDs criadas antes do contactPhone existir, atualiza o
+  // Lead com o telefone real assim que ele aparece num webhook posterior, para
+  // que o painel mostre o número de verdade no lugar do @lid.
+  if (contactPhone && conversation.leadId) {
+    const lead = await prisma.lead.findUnique({
+      where: { id: conversation.leadId },
+      select: { phone: true, name: true },
+    });
+    if (lead && (lead.phone.endsWith("@lid") || lead.phone === phoneNumber)) {
+      await prisma.lead.update({
+        where: { id: conversation.leadId },
+        data: {
+          phone: contactPhone,
+          // Só substitui name se ele ainda estava com a versão "LID/phoneNumber"
+          // crua (sinal de que ninguém editou manualmente).
+          ...(lead.name === lead.phone ? { name: contactPhone } : {}),
+        },
+      }).catch(() => {});
+    }
+  }
+
   // ── Vincula conversa a Cliente existente pelo telefone ────────────────────
   if (!conversation.clientId) {
-    const clientId = await findClientIdByOrgPhone(org.id, phoneNumber);
+    const lookupPhone = contactPhone ?? phoneNumber;
+    const clientId = await findClientIdByOrgPhone(org.id, lookupPhone);
     if (clientId) {
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
