@@ -29,15 +29,22 @@ export interface AIServiceConfig {
 /** Lead frio (primeiro contato) vs conversa que já vem de um diálogo (WhatsApp com histórico / retorno). */
 export type LeadChatMode = "cold" | "established";
 
+export interface LeadProgress {
+  name?: string;
+  email?: string;
+  legalArea?: string;
+  caseSummary?: string;
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean }
+  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean; leadProgress?: LeadProgress }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false } = options ?? {};
+  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false, leadProgress } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened, leadProgress) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -69,7 +76,7 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false, leadProgress?: LeadProgress): string {
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
     : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
@@ -133,7 +140,17 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
     ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
     : "";
 
-  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
+  const collected: string[] = [];
+  if (leadProgress?.name)       collected.push(`- NOME: ${leadProgress.name} (JÁ COLETADO — NÃO pergunte de novo)`);
+  if (leadProgress?.email)      collected.push(`- E-MAIL: ${leadProgress.email} (JÁ COLETADO — NÃO pergunte de novo)`);
+  if (leadProgress?.legalArea)  collected.push(`- ÁREA: ${leadProgress.legalArea} (JÁ IDENTIFICADA — NÃO pergunte de novo qual a área/assunto)`);
+  if (leadProgress?.caseSummary) collected.push(`- SITUAÇÃO: já descrita — NÃO peça para repetir.`);
+
+  const progressNote = collected.length
+    ? `\n\n--- DADOS JÁ COLETADOS NESTA CONVERSA ---\n${collected.join("\n")}\n\nREGRA: Pule TODAS as etapas do FLUXO cujos dados aparecem acima. Avance direto para a próxima etapa pendente. Se TODAS estiverem coletadas, encerre com a mensagem de registro e [TRIAGEM COMPLETA]. Também considere uma etapa concluída se a informação aparece de forma clara no histórico (ex.: o cliente menciona BPC/LOAS, INSS, aposentadoria → área Previdenciária já identificada).`
+    : `\n\nREGRA ADICIONAL: Antes de perguntar nome, e-mail, área ou situação, releia o histórico desta conversa. Se o cliente já forneceu a informação em qualquer mensagem anterior (mesmo de passagem, ex.: "seria BPC/LOAS", "é sobre rescisão"), considere a etapa concluída e siga para a próxima.`;
+
+  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}${progressNote}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────

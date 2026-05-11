@@ -265,11 +265,21 @@ export async function processIncomingMessage(
     };
   }
 
+  const leadProgress = lead
+    ? {
+        name: lead.name && !/^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, "")) ? lead.name : undefined,
+        email: lead.email ?? undefined,
+        legalArea: lead.legalArea ?? undefined,
+        caseSummary: lead.caseSummary ?? undefined,
+      }
+    : undefined;
+
   const result = await runAIChat(config, history, userMessage, {
     clientContext,
     leadMode,
     hasMedia,
     operatorIntervened,
+    leadProgress,
   });
 
   // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
