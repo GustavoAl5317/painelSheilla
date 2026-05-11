@@ -109,6 +109,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
 - NUNCA pergunte se o cliente já tem advogado.
+- NUNCA pergunte se o caso é urgente, qual o nível de urgência ou se há pressa — nem isoladamente, nem junto com outra pergunta.
 - Se o cliente precisar de atendimento urgente ou quiser falar com a equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
@@ -122,6 +123,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
 - NUNCA pergunte se o cliente já tem advogado.
+- NUNCA pergunte se o caso é urgente, qual o nível de urgência ou se há pressa — nem isoladamente, nem junto com outra pergunta (ex.: ao perguntar cidade/estado, NÃO acrescente "há alguma urgência?").
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, empático e profissional.`
       : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
@@ -137,6 +139,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
 - NUNCA pergunte se o cliente já tem advogado.
+- NUNCA pergunte se o caso é urgente, qual o nível de urgência ou se há pressa — nem isoladamente, nem junto com outra pergunta (ex.: ao perguntar cidade/estado, NÃO acrescente "há alguma urgência?"). A triagem da urgência é responsabilidade da equipe humana.
 - NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
