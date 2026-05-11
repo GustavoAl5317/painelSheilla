@@ -77,12 +77,8 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   if (
     rawPhone.includes("@g.us") ||
     rawPhone.includes("@lid") ||
-    rawPhone.includes("-group") ||
-    rawPhone.includes("-") || // Grupos costumam ter hífen no ID (ex: 1234-5678)
     chatId.includes("@g.us") ||
     chatId.includes("@lid") ||
-    chatId.includes("-group") ||
-    chatId.includes("-") ||
     body.isGroup === true ||
     body.isGroupMsg === true
   ) {
