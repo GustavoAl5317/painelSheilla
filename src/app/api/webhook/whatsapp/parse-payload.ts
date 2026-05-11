@@ -83,19 +83,18 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   // Ignora mensagens de grupos WhatsApp — IA não deve atuar em grupos.
   // IMPORTANTE: @lid (LinkedID) NÃO é grupo — é o formato de privacidade do
-  // WhatsApp para chats individuais. Filtrá-lo bloqueia mensagens legítimas
-  // do operador (ex.: comando "#" para pausar IA) em contatos com LID ativo.
-  // rawPhone com @g.us: Evolution API
-  // body.isGroup / body.chatId com @g.us: Z-API
-  const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
-  if (
+  // WhatsApp para chats individuais. O único marcador 100% confiável de grupo
+  // é o sufixo @g.us na JID. Heurísticas adicionais (isGroup, "-group", groupId
+  // como fallback de chatId) deram falso-positivo em ReceivedCallback de chats
+  // individuais com LID e bloquearam mensagens legítimas — por isso só checamos
+  // @g.us aqui.
+  const chatIdRaw = str((body as any).chatId) ?? str((body as any).remoteJid) ?? "";
+  const groupIdRaw = str((body as any).groupId) ?? "";
+  const isGroup =
     rawPhone.includes("@g.us") ||
-    rawPhone.includes("-group") ||
-    chatId.includes("@g.us") ||
-    chatId.includes("-group") ||
-    body.isGroup === true ||
-    body.isGroupMsg === true
-  ) {
+    chatIdRaw.includes("@g.us") ||
+    groupIdRaw.includes("@g.us");
+  if (isGroup) {
     return { skip: true, reason: "group_message" };
   }
 
