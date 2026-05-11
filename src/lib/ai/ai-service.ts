@@ -50,11 +50,19 @@ export async function runAIChat(
     extractQualifiedDataWithAI(config.apiKey, config.provider, config.model, history, userMessage),
   ]);
 
-  const shouldTransfer =
-    config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
-    responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
-
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
+
+  // Cliente já cadastrado pode ser transferido direto; lead novo precisa concluir
+  // a triagem básica antes de ir para o advogado, mesmo que peça explicitamente.
+  const isRegisteredClient = Boolean(clientContext);
+  const keywordMatched = config.transferKeywords.some(kw =>
+    userMessage.toLowerCase().includes(kw.toLowerCase())
+  );
+  const explicitTransferTag = responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
+
+  const shouldTransfer =
+    explicitTransferTag ||
+    (keywordMatched && (isRegisteredClient || triageComplete));
 
   const cleanContent = responseContent
     .replace("[TRANSFERIR_PARA_HUMANO]", "")
@@ -114,7 +122,8 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
 - NUNCA pergunte se o cliente já tem advogado.
-- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
+- Se o lead pedir para falar com advogado/humano ANTES da triagem estar completa: reconheça em UMA frase ("Claro, vou encaminhar você para a Dra. Sheila. Antes preciso de algumas informações rápidas."), e continue imediatamente pela próxima etapa pendente da triagem. NÃO inclua [TRANSFERIR_PARA_HUMANO] ainda.
+- Só inclua [TRANSFERIR_PARA_HUMANO] depois que nome, e-mail, área e situação já tiverem sido coletados, ou em casos de emergência real (risco à vida, prazo judicial <48h).
 - Responda em português brasileiro, empático e profissional.`
       : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
 - Siga o FLUXO definido acima, uma etapa por vez. Nunca pule etapas nem junte perguntas.
@@ -126,7 +135,8 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA pergunte se o cliente já tem advogado.
 - NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários.
-- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
+- Se o lead pedir para falar com advogado/humano ANTES da triagem estar completa: reconheça em UMA frase ("Claro, vou encaminhar você para a Dra. Sheila. Antes preciso de algumas informações rápidas.") e avance imediatamente pela próxima etapa pendente. NÃO inclua [TRANSFERIR_PARA_HUMANO] ainda.
+- Só inclua [TRANSFERIR_PARA_HUMANO] depois de coletar nome, e-mail, área e situação, ou em emergência real (risco à vida, prazo judicial <48h).
 - Responda sempre em português brasileiro, de forma empática e profissional.`;
 
   const operatorNote = operatorIntervened
