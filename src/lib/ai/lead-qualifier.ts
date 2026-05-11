@@ -231,10 +231,16 @@ export async function processIncomingMessage(
   const nameLooksPhone =
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
+  // Indicadores fracos: aparecem com frequência em primeira mensagem de lead novo
+  // ("quero falar com um advogado", "boa tarde doutora"). Não devem pular a triagem.
   const textSuggestsOngoing = (t: string) =>
     /dra\.?|doutor|doutora|dra\s|doutor\s|sra\.?|sr\.?|oab|quando\s+o|valor|pagamento|processo|honor|já\s|retorno|acordo|escritór|escrit|advogad|parcela|me\s+lig|falar com/i.test(
       t
     );
+
+  // Indicadores fortes: só fazem sentido se já houve contato prévio sobre o caso.
+  const textImpliesPriorContact = (t: string) =>
+    /oab|processo|honor|parcela|acordo|retorno|pagamento|valor|quando\s+o|já\s/i.test(t);
 
   const leadMode: LeadChatMode =
     hadAiReply ||
@@ -244,12 +250,13 @@ export async function processIncomingMessage(
       ? "established"
       : "cold";
 
-  // Cenário 1: mensagem sugere conversa em andamento mas não há histórico nem cadastro.
+  // Cenário 1: mensagem sugere caso pré-existente (não apenas pedido de advogado)
+  // mas não há histórico nem cadastro — provável retomada de contato antigo.
   const semContexto =
-    leadMode === "established" &&
     history.length === 0 &&
     !clientContext &&
-    textSuggestsOngoing(userMessage);
+    !hadAiReply &&
+    (textImpliesPriorContact(userMessage) || textImpliesPriorContact(allInboundText));
 
   // Cenário 2: a doutora já respondeu mensagens nesta conversa, mas a IA nunca participou.
   // A IA não tem contexto da conversa em andamento — não deve atrapalhar pedindo dados de
