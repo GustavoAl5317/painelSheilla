@@ -70,30 +70,32 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "no_phone" };
   }
 
-  // Ignora mensagens de grupos WhatsApp — IA não deve atuar em grupos
+  // Ignora mensagens de grupos WhatsApp — IA não deve atuar em grupos.
+  // IMPORTANTE: @lid (LinkedID) NÃO é grupo — é o formato de privacidade do
+  // WhatsApp para chats individuais. Filtrá-lo bloqueia mensagens legítimas
+  // do operador (ex.: comando "#" para pausar IA) em contatos com LID ativo.
   // rawPhone com @g.us: Evolution API
   // body.isGroup / body.chatId com @g.us: Z-API
   const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
   if (
     rawPhone.includes("@g.us") ||
-    rawPhone.includes("@lid") ||
     rawPhone.includes("-group") ||
-    rawPhone.includes("-") || // Grupos costumam ter hífen no ID (ex: 1234-5678)
     chatId.includes("@g.us") ||
-    chatId.includes("@lid") ||
     chatId.includes("-group") ||
-    chatId.includes("-") ||
     body.isGroup === true ||
     body.isGroupMsg === true
   ) {
     return { skip: true, reason: "group_message" };
   }
 
-  // Normaliza para somente dígitos
-  const phone = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
+  // LID = WhatsApp LinkedID (modo privacidade): preservar o sufixo @lid para que
+  // o sender saiba mandar de volta no formato correto (Z-API exige xxxxxx@lid).
+  const isLid = rawPhone.includes("@lid");
+  const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
+  const phone = isLid ? `${digits}@lid` : digits;
 
   // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
-  if (phone.length > 15) {
+  if (digits.length > 15) {
     return { skip: true, reason: "group_id_length" };
   }
 
