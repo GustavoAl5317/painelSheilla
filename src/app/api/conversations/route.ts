@@ -34,12 +34,19 @@ export async function GET() {
 
   const blockedList = (aiConfig as any)?.blockedNumbers || [];
   const data = conversations
-    .filter(c => c.phoneNumber.length <= 15)
+    // Aceita telefones normais (≤15 dígitos) e LIDs (xxxxx@lid). IDs de grupo
+    // (>15 dígitos sem @lid) já são descartados no parser do webhook, mas o
+    // filtro abaixo é uma segunda barreira para conversas legadas.
+    .filter(c => {
+      if (c.phoneNumber.endsWith("@lid")) return true;
+      return c.phoneNumber.length <= 15;
+    })
     .map(c => {
-    const blockItem = Array.isArray(blockedList) 
-      ? (blockedList as any[]).find((item: any) => String(item.phone || "").replace(/\D/g, "") === c.phoneNumber)
+    const digits = c.phoneNumber.replace(/@.*$/, "").replace(/\D/g, "");
+    const blockItem = Array.isArray(blockedList)
+      ? (blockedList as any[]).find((item: any) => String(item.phone || "").replace(/\D/g, "") === digits)
       : null;
-    
+
     return {
       ...c,
       isBlocked: c.isBlocked || !!blockItem,
