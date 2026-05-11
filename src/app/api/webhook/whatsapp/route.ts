@@ -249,6 +249,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "fromMe_processed" });
   }
 
+  // Cliente enviou "#" → pausa IA para esta conversa (kill switch do lado do cliente)
+  if (messageContent.trim() === "#") {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { aiEnabled: false },
+    });
+    await prisma.notification.create({
+      data: {
+        organizationId: org.id,
+        type: "NEW_LEAD",
+        title: "Cliente pausou a IA",
+        message: `${phoneNumber} enviou "#" — IA desativada nesta conversa.`,
+        metadata: { conversationId: conversation.id },
+      },
+    });
+    console.log(`[Webhook] Cliente pausou IA via "#" (conv=${conversation.id})`);
+    return NextResponse.json({ ok: true, ai: "paused_by_client" });
+  }
+
   // ── Processa com IA (somente se aiEnabled) ────────────────────────────────
   // Marca o momento em que a mensagem do cliente chegou — usado depois para detectar intervenção do operador
   const clientMessageReceivedAt = new Date();
