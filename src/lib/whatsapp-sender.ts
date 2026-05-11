@@ -9,6 +9,56 @@ function normalizePhone(raw: string): string {
   return `55${digits}`;
 }
 
+// ─── Z-API: resolução de LID ──────────────────────────────────────────────────
+
+/**
+ * Resolve um LID (Linked Identifier do WhatsApp Multi-Device) para o telefone real
+ * do contato. Necessário quando a Z-API envia phone="...@lid" em mensagens fromMe.
+ *
+ * Retorna apenas dígitos do telefone, ou null se não conseguir resolver.
+ */
+export async function resolveLidToPhone(
+  organizationId: string,
+  lid: string
+): Promise<string | null> {
+  const [instance, token, clientToken] = await Promise.all([
+    resolveCredential(organizationId, "ZAPI_INSTANCE"),
+    resolveCredential(organizationId, "ZAPI_TOKEN"),
+    resolveCredential(organizationId, "ZAPI_CLIENT_TOKEN"),
+  ]);
+  if (!instance || !token) {
+    console.warn("[Z-API] resolveLidToPhone: credenciais ausentes");
+    return null;
+  }
+
+  const lidDigits = lid.replace(/@.*$/, "").replace(/\D/g, "");
+  if (!lidDigits) return null;
+
+  const url = `https://api.z-api.io/instances/${instance}/token/${token}/phone-exists-lid/${lidDigits}`;
+  const headers: Record<string, string> = {};
+  if (clientToken) headers["Client-Token"] = clientToken;
+
+  try {
+    const res = await fetch(url, { headers });
+    const bodyText = await res.text();
+    if (!res.ok) {
+      console.error(`[Z-API] phone-exists-lid falhou (${res.status}):`, bodyText.slice(0, 200));
+      return null;
+    }
+    let parsed: any;
+    try { parsed = JSON.parse(bodyText); } catch { return null; }
+    const phone: unknown = parsed?.phone ?? parsed?.inputPhone ?? parsed?.result;
+    if (typeof phone !== "string") {
+      console.warn("[Z-API] phone-exists-lid sem phone na resposta:", bodyText.slice(0, 200));
+      return null;
+    }
+    return phone.replace(/\D/g, "") || null;
+  } catch (err) {
+    console.error("[Z-API] phone-exists-lid erro de rede:", (err as Error).message);
+    return null;
+  }
+}
+
 // ─── Z-API ────────────────────────────────────────────────────────────────────
 
 async function sendViaZAPI(

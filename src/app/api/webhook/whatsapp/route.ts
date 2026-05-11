@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/ai/lead-qualifier";
 import { transcribeAudio, analyzeMediaWithAI } from "@/lib/ai/ai-service";
-import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { sendWhatsAppMessage, resolveLidToPhone } from "@/lib/whatsapp-sender";
 import { parseWhatsAppWebhookBody } from "./parse-payload";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { emit } from "@/lib/sse-emitter";
@@ -49,8 +49,19 @@ export async function POST(req: NextRequest) {
     where: { organizationId: org.id },
   });
 
-  const phoneNumber = parsed.phone;
+  let phoneNumber = parsed.phone;
   let messageContent = parsed.content;
+
+  // ── Resolve LID (WhatsApp Multi-Device fromMe usa pseudo-id) ─────────────
+  if (parsed.isLid) {
+    const realPhone = await resolveLidToPhone(org.id, parsed.phone);
+    if (!realPhone) {
+      console.log(`[webhook] LID não resolvido (${parsed.phone}) — mensagem descartada`);
+      return NextResponse.json({ ok: true, ignored: "lid_unresolved" });
+    }
+    console.log(`[webhook] LID ${parsed.phone} → ${realPhone}`);
+    phoneNumber = realPhone;
+  }
   const externalMessageId = parsed.externalMessageId;
   const messageType = parsed.messageType;
   const audioUrl = parsed.audioUrl;

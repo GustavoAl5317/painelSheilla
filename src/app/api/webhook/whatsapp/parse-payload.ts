@@ -9,6 +9,7 @@ type ParsedInbound = {
   messageType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
   externalMessageId: string | null;
   fromMe?: boolean;
+  isLid?: boolean;
   audioUrl?: string;
   imageUrl?: string;
   documentUrl?: string;
@@ -73,23 +74,26 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   // Ignora mensagens de grupos WhatsApp — IA não deve atuar em grupos
   // rawPhone com @g.us: Evolution API
   // body.isGroup / body.chatId com @g.us: Z-API
+  // @lid (Linked Identifier) NÃO é grupo — é pseudo-id que o WhatsApp Multi-Device
+  // usa para mensagens fromMe; precisa ser resolvido a um telefone real depois.
   const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
   if (
     rawPhone.includes("@g.us") ||
-    rawPhone.includes("@lid") ||
     chatId.includes("@g.us") ||
-    chatId.includes("@lid") ||
     body.isGroup === true ||
     body.isGroupMsg === true
   ) {
     return { skip: true, reason: "group_message" };
   }
 
+  const isLid = rawPhone.includes("@lid") || chatId.includes("@lid");
+
   // Normaliza para somente dígitos
   const phone = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
 
-  // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
-  if (phone.length > 15) {
+  // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14.
+  // LIDs também excedem 15 dígitos mas serão resolvidos depois para o telefone real.
+  if (!isLid && phone.length > 15) {
     return { skip: true, reason: "group_id_length" };
   }
 
@@ -155,6 +159,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     messageType: isAudio ? "AUDIO" : isDocument ? "DOCUMENT" : isImage ? "IMAGE" : "TEXT",
     externalMessageId,
     fromMe,
+    isLid,
     audioUrl,
     imageUrl,
     documentUrl,
