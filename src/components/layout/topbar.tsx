@@ -144,10 +144,10 @@ export function Topbar({ title }: TopbarProps) {
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-gray-100 bg-white/95 backdrop-blur-sm px-4 md:px-6 shrink-0 sticky top-0 z-30">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={toggle}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 md:hidden"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 md:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -156,8 +156,8 @@ export function Topbar({ title }: TopbarProps) {
 
       <div className="flex items-center gap-2">
         {/* Busca global */}
-        <div ref={searchRef} className="relative flex-1 md:flex-none">
-          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 w-full md:w-64 lg:w-80 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-sm focus-within:shadow-blue-100/50 transition-all">
+        <div ref={searchRef} className="relative hidden sm:block md:flex-none">
+          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 w-48 sm:w-56 md:w-64 lg:w-80 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-sm focus-within:shadow-blue-100/50 transition-all">
             <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
             <input
               value={searchQuery}

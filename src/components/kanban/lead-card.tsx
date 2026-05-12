@@ -56,13 +56,11 @@ export function LeadCard({ lead, isDragging = false }: LeadCardProps) {
     >
       {/* Nome + AI badge */}
       <div className="flex items-start justify-between gap-2 mb-2.5">
-        <Link
-          href={`/leads/${lead.id}`}
-          className="text-sm font-semibold text-gray-900 hover:text-blue-600 transition-colors leading-tight line-clamp-1"
-          onClick={(e) => e.stopPropagation()}
+        <span
+          className="text-sm font-semibold text-gray-900 leading-tight line-clamp-1"
         >
           {lead.name}
-        </Link>
+        </span>
         {lead.aiQualified && (
           <div title="Qualificado por IA" className="shrink-0">
             <Bot className="h-3.5 w-3.5 text-blue-400" />
