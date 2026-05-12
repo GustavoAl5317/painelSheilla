@@ -69,7 +69,7 @@ export async function POST(
   }
 
   try {
-    await sendWhatsAppMessage(orgId, conversation.phoneNumber, content);
+    await sendWhatsAppMessage(orgId, conversation.phoneNumber, content, (conversation as any).chatLid);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Falha ao enviar no WhatsApp";
     return NextResponse.json({ error: message }, { status: 502 });

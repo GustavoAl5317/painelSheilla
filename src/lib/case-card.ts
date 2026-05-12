@@ -143,7 +143,7 @@ async function maybeNotifyClientFromCaseCard(
   if (!message?.trim()) return false;
 
   try {
-    await sendWhatsAppMessage(organizationId, conv.phoneNumber, `📋 *Atualização do seu caso*\n\n${message}`);
+    await sendWhatsAppMessage(organizationId, conv.phoneNumber, `📋 *Atualização do seu caso*\n\n${message}`, (conv as any).chatLid);
     // Pausa a IA na conversa — atualização vinda do escritório, não da IA.
     // Evita que a IA responda em paralelo gerando mensagens conflitantes.
     await prisma.conversation.update({

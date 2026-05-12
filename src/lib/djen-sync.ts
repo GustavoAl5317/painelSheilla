@@ -368,7 +368,7 @@ async function processDJENItems(
     if (conv) {
       const firstName = linkedClient!.name.split(" ")[0];
       const msg = `📋 *Nova movimentação judicial*\n\nOlá ${firstName}! ${interpretation.mensagemCliente}`;
-      sendWhatsAppMessage(organizationId, conv.phoneNumber, msg).catch(() => {});
+      sendWhatsAppMessage(organizationId, conv.phoneNumber, msg, (conv as any).chatLid).catch(() => {});
     }
 
     result.synced++;

@@ -71,8 +71,13 @@ async function sendViaEvolution(
 export async function sendWhatsAppMessage(
   organizationId: string,
   phoneNumber: string,
-  message: string
+  message: string,
+  chatLid?: string | null
 ): Promise<void> {
+  // Para contatos LID (privacidade do WhatsApp), o Z-API exige o identificador
+  // xxxxxx@lid no campo "phone" — phoneNumber real não roteia. Usa chatLid se houver.
+  const routingTarget = chatLid && chatLid.includes("@lid") ? chatLid : phoneNumber;
+
   // Tenta Z-API primeiro
   const [zapiInstance, zapiToken] = await Promise.all([
     resolveCredential(organizationId, "ZAPI_INSTANCE"),
@@ -81,7 +86,7 @@ export async function sendWhatsAppMessage(
 
   if (zapiInstance && zapiToken) {
     const zapiClientToken = await resolveCredential(organizationId, "ZAPI_CLIENT_TOKEN");
-    await sendViaZAPI(zapiInstance, zapiToken, phoneNumber, message, zapiClientToken);
+    await sendViaZAPI(zapiInstance, zapiToken, routingTarget, message, zapiClientToken);
     return;
   }
 
@@ -93,7 +98,7 @@ export async function sendWhatsAppMessage(
   ]);
 
   if (evoUrl && evoKey && evoInstance) {
-    await sendViaEvolution(evoUrl, evoKey, evoInstance, phoneNumber, message);
+    await sendViaEvolution(evoUrl, evoKey, evoInstance, routingTarget, message);
     return;
   }
 

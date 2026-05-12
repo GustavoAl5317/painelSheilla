@@ -5,6 +5,7 @@
 
 type ParsedInbound = {
   phone: string;
+  chatLid: string | null;
   content: string;
   messageType: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
   externalMessageId: string | null;
@@ -63,19 +64,21 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     str(dataKey?.remoteJid);
 
   // chatLid (Z-API) é o identificador estável do chat quando o contato usa
-  // privacidade (LID). Sem ele, a mesma conversa apareceria às vezes como LID
-  // (ex.: comando "#" do operador) e às vezes como número real (ex.: eco da IA,
-  // mensagem do cliente), criando duas conversas e fazendo a pausa não bater.
-  // Só sobrescrevemos quando chatLid for de fato uma LID — chats normais
-  // continuam usando body.phone.
+  // privacidade (LID). Guardamos separado do número real para que a UI mostre
+  // o telefone (quando disponível) e o sender saiba rotear via @lid.
   const chatLidRaw = str((body as any).chatLid);
-  const hasLidIdentifier = chatLidRaw?.includes("@lid") ?? false;
+  const remoteJidLid = remoteJid?.includes("@lid") ? remoteJid : null;
+  const chatLidFull =
+    (chatLidRaw?.includes("@lid") ? chatLidRaw : null) ?? remoteJidLid ?? null;
 
-  const rawPhone = hasLidIdentifier
-    ? chatLidRaw!
-    : (fromMe
-      ? (str(body.phone) ?? remoteJid ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
-      : (str(body.phone) ?? remoteJid ?? str(body.from) ?? str(body.sender)));
+  // body.phone (Z-API) e remoteJid (Evolution) costumam trazer o número real
+  // mesmo em contatos LID. Só caímos para o chatLid se nenhum vier.
+  const phoneCandidate =
+    fromMe
+      ? (str(body.phone) ?? (remoteJid && !remoteJid.includes("@lid") ? remoteJid : null) ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId))
+      : (str(body.phone) ?? (remoteJid && !remoteJid.includes("@lid") ? remoteJid : null) ?? str(body.from) ?? str(body.sender));
+
+  const rawPhone = phoneCandidate ?? chatLidFull;
 
   if (!rawPhone) {
     return { skip: true, reason: "no_phone" };
@@ -99,18 +102,25 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "group_message" };
   }
 
-  // LID = WhatsApp LinkedID (modo privacidade): preservar o sufixo @lid para que
-  // o sender saiba mandar de volta no formato correto (Z-API exige xxxxxx@lid).
-  const isLid = rawPhone.includes("@lid");
+  // Se sobrou só LID (sem número real disponível), phone fica vazio e a
+  // identificação da conversa se dá por chatLid.
+  const rawIsLid = rawPhone.includes("@lid");
   const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
   // Números BR sem código de país recebem prefixo 55 — padroniza para 5511999998888.
   const normalizedDigits =
-    !isLid && (digits.length === 10 || digits.length === 11) ? `55${digits}` : digits;
-  const phone = isLid ? `${digits}@lid` : normalizedDigits;
+    !rawIsLid && (digits.length === 10 || digits.length === 11) ? `55${digits}` : digits;
+  const phone = rawIsLid ? "" : normalizedDigits;
+  const chatLid = chatLidFull
+    ? `${chatLidFull.replace(/@.*$/, "").replace(/\D/g, "")}@lid`
+    : null;
 
   // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
   if (digits.length > 15) {
     return { skip: true, reason: "group_id_length" };
+  }
+
+  if (!phone && !chatLid) {
+    return { skip: true, reason: "no_phone" };
   }
 
   const text = body.text;
@@ -171,6 +181,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   return {
     phone,
+    chatLid,
     content: content.trim(),
     messageType: isAudio ? "AUDIO" : isDocument ? "DOCUMENT" : isImage ? "IMAGE" : "TEXT",
     externalMessageId,

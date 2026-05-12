@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
   });
 
   const phoneNumber = parsed.phone;
+  const chatLid = parsed.chatLid;
   let messageContent = parsed.content;
   const externalMessageId = parsed.externalMessageId;
   const messageType = parsed.messageType;
@@ -61,20 +62,50 @@ export async function POST(req: NextRequest) {
   const hasMedia = !!(imageUrl || documentUrl);
 
   // ── Busca ou cria conversa (atômico — evita race condition de duplicata) ──
-  let conversation = await prisma.conversation.findFirst({
-    where: { organizationId: org.id, phoneNumber },
-  });
+  // Identifica por chatLid primeiro (estável p/ contatos LID) e depois por phoneNumber.
+  let conversation = chatLid
+    ? await prisma.conversation.findFirst({
+        where: { organizationId: org.id, chatLid },
+      })
+    : null;
+  if (!conversation && phoneNumber) {
+    conversation = await prisma.conversation.findFirst({
+      where: { organizationId: org.id, phoneNumber },
+    });
+  }
+
+  // Conversa já existia mas faltava info (ex.: tinha só chatLid e agora veio o
+  // telefone real, ou vice-versa). Completa o registro.
+  if (conversation) {
+    const updates: { phoneNumber?: string; chatLid?: string } = {};
+    if (phoneNumber && conversation.phoneNumber !== phoneNumber && (conversation.phoneNumber.startsWith("lid:") || conversation.phoneNumber === "")) {
+      updates.phoneNumber = phoneNumber;
+    }
+    if (chatLid && (conversation as any).chatLid !== chatLid) {
+      updates.chatLid = chatLid;
+    }
+    if (Object.keys(updates).length > 0) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: updates,
+      }).catch(() => conversation);
+    }
+  }
 
   if (!conversation) {
+    const lookupPhone = phoneNumber || `lid:${chatLid}`;
+    const displayName = phoneNumber || chatLid || lookupPhone;
     const [defaultStage, formerClient] = await Promise.all([
       prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
-      prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } }),
+      phoneNumber
+        ? prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } })
+        : Promise.resolve(null),
     ]);
 
     const lead = await prisma.lead.create({
       data: {
-        name: formerClient?.name ?? phoneNumber,
-        phone: phoneNumber,
+        name: formerClient?.name ?? displayName,
+        phone: phoneNumber || null,
         source: "WHATSAPP",
         organizationId: org.id,
         stageId: defaultStage?.id,
@@ -84,7 +115,8 @@ export async function POST(req: NextRequest) {
     try {
       conversation = await prisma.conversation.create({
         data: {
-          phoneNumber,
+          phoneNumber: phoneNumber || `lid:${chatLid}`,
+          chatLid: chatLid ?? null,
           organizationId: org.id,
           leadId: lead.id,
           status: "OPEN",
@@ -95,10 +127,14 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       // Unique constraint: outra requisição criou a conversa em paralelo — busca a existente
       if (e?.code === "P2002") {
-        conversation = await prisma.conversation.findFirst({
-          where: { organizationId: org.id, phoneNumber },
-        });
-        // Lead órfão criado nesta requisição — remove para não poluir o kanban
+        conversation = chatLid
+          ? await prisma.conversation.findFirst({ where: { organizationId: org.id, chatLid } })
+          : null;
+        if (!conversation && phoneNumber) {
+          conversation = await prisma.conversation.findFirst({
+            where: { organizationId: org.id, phoneNumber },
+          });
+        }
         await prisma.lead.delete({ where: { id: lead.id } }).catch(() => {});
       }
       if (!conversation) throw e;
@@ -111,7 +147,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Vincula conversa a Cliente existente pelo telefone ────────────────────
-  if (!conversation.clientId) {
+  if (!conversation.clientId && phoneNumber) {
     const clientId = await findClientIdByOrgPhone(org.id, phoneNumber);
     if (clientId) {
       conversation = await prisma.conversation.update({
@@ -321,7 +357,7 @@ export async function POST(req: NextRequest) {
     emit(org.id, "message", { conversationId: conversation.id, message: aiMsg });
 
     try {
-      await sendWhatsAppMessage(org.id, phoneNumber, aiResult.content);
+      await sendWhatsAppMessage(org.id, phoneNumber, aiResult.content, chatLid);
     } catch (err) {
       console.error("[webhook] Falha ao enviar mensagem WhatsApp:", (err as Error).message);
     }

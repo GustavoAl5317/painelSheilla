@@ -9,6 +9,13 @@ import { cn } from "@/lib/utils";
 import { ConvertLeadButton } from "@/components/kanban/convert-lead-button";
 import { AgendaModalChat } from "@/components/agenda/agenda-modal-chat";
 import { normalizeBrazilianPhone } from "@/lib/phone-normalize";
+
+function displayPhone(conv: { phoneNumber: string; chatLid?: string | null }): string {
+  const raw = conv.phoneNumber || "";
+  if (raw && !raw.startsWith("lid:")) return normalizeBrazilianPhone(raw);
+  if (conv.chatLid) return conv.chatLid;
+  return raw;
+}
 import type { Conversation, Lead, Message as PrismaMessage } from "@prisma/client";
 
 type ConvRow = Conversation & {
@@ -157,7 +164,7 @@ export function ChatShell() {
   }, [selectedId]);
 
   const filtered = list.filter((c) => {
-    const name = (c.lead?.name ?? c.phoneNumber).toLowerCase();
+    const name = (c.lead?.name ?? displayPhone(c)).toLowerCase();
     return name.includes(search.toLowerCase()) || c.phoneNumber.includes(search);
   });
 
@@ -291,7 +298,7 @@ export function ChatShell() {
             <p className="py-10 text-center text-sm text-gray-400">Nenhuma conversa no banco ainda.</p>
           )}
           {filtered.map((c) => {
-            const name = c.globalName || (c.lead?.name ?? c.phoneNumber);
+            const name = c.globalName || (c.lead?.name ?? displayPhone(c));
             const lastMsg = c.messages?.at(-1);
             const active = c.id === selectedId;
             return (
@@ -337,7 +344,7 @@ export function ChatShell() {
                       {c.aiEnabled && !c.isBlocked && (
                         <Bot className="h-3 w-3 text-blue-500 shrink-0" />
                       )}
-                      <span className="truncate">{lastMsg?.content ?? normalizeBrazilianPhone(c.phoneNumber)}</span>
+                      <span className="truncate">{lastMsg?.content ?? displayPhone(c)}</span>
                     </p>
                     {c.unreadCount > 0 && !c.isBlocked && (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-green-500 text-[10px] font-bold text-white px-1.5 shrink-0">
@@ -371,12 +378,12 @@ export function ChatShell() {
                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white text-xs font-bold",
                   selected.isBlocked ? "bg-gray-400" : "bg-green-500"
                 )}>
-                  {initials(selected.globalName || (selected.lead?.name === selected.phoneNumber ? selected.phoneNumber : (selected.lead?.name || selected.phoneNumber)))}
+                  {initials(selected.globalName || (selected.lead?.name === selected.phoneNumber ? displayPhone(selected) : (selected.lead?.name || displayPhone(selected))))}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-gray-900">
-                      {selected.globalName || (selected.lead?.name === selected.phoneNumber ? selected.phoneNumber : (selected.lead?.name || selected.phoneNumber))}
+                      {selected.globalName || (selected.lead?.name === selected.phoneNumber ? displayPhone(selected) : (selected.lead?.name || displayPhone(selected)))}
                       {selected.isBlocked && <span className="ml-2 text-red-500 font-bold text-xs">(BLOQUEADO)</span>}
                     </p>
                     <Badge variant={STATUS_CONFIG[selected.status]?.variant ?? "secondary"} className="text-[10px] py-0">
@@ -386,7 +393,7 @@ export function ChatShell() {
                       <span className="text-[11px] text-blue-500 font-medium">{selected.lead.legalArea}</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{normalizeBrazilianPhone(selected.phoneNumber)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{displayPhone(selected)}</p>
                 </div>
               </div>
 

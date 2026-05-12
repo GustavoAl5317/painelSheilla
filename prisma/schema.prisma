@@ -170,6 +170,7 @@ model CaseCardEntry {
 model Conversation {
   id             String             @id @default(cuid())
   phoneNumber    String
+  chatLid        String?
   status         ConversationStatus @default(OPEN)
   aiEnabled      Boolean            @default(true)
   organizationId String
@@ -187,6 +188,7 @@ model Conversation {
   messages       Message[]
 
   @@unique([organizationId, phoneNumber])
+  @@unique([organizationId, chatLid])
   @@index([organizationId])
 }
 

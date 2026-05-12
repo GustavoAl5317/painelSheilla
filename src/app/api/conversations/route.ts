@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isPhoneBlocked } from "@/lib/blocked-phones";
 
 export async function GET() {
   const session = await auth();
@@ -34,15 +35,20 @@ export async function GET() {
 
   const blockedList = (aiConfig as any)?.blockedNumbers || [];
   const data = conversations
-    .filter(c => c.phoneNumber.length <= 15)
+    .filter(c => c.phoneNumber.length <= 15 || c.phoneNumber.startsWith("lid:") || (c as any).chatLid)
     .map(c => {
-    const blockItem = Array.isArray(blockedList) 
-      ? (blockedList as any[]).find((item: any) => String(item.phone || "").replace(/\D/g, "") === c.phoneNumber)
+    const blocked = isPhoneBlocked(blockedList, c.phoneNumber);
+    const blockItem = Array.isArray(blockedList)
+      ? (blockedList as any[]).find((item: any) => {
+          const p = String(item.phone || "").replace(/\D/g, "");
+          const target = c.phoneNumber.replace(/\D/g, "");
+          return p && target && (p === target || p.endsWith(target) || target.endsWith(p));
+        })
       : null;
-    
+
     return {
       ...c,
-      isBlocked: c.isBlocked || !!blockItem,
+      isBlocked: c.isBlocked || blocked,
       globalName: blockItem?.name || null
     };
   });
