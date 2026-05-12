@@ -115,6 +115,16 @@ export async function processIncomingMessage(
     return null;
   }
 
+  const aiCfgForBlock = await prisma.aIConfig.findUnique({ where: { organizationId }, select: { blockedNumbers: true } });
+  const blockedList = (aiCfgForBlock as any)?.blockedNumbers;
+  if (
+    isPhoneBlocked(blockedList, conversation.phoneNumber) ||
+    ((conversation as any).chatLid && isPhoneBlocked(blockedList, (conversation as any).chatLid))
+  ) {
+    console.log(`[AI ignore] Número ${conversation.phoneNumber} está na lista de bloqueio em massa.`);
+    return null;
+  }
+
   const config = await resolveAIConfig(organizationId, conversation.phoneNumber);
   if (!config) return null;
 

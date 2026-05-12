@@ -20,36 +20,43 @@ export async function PATCH(
 
   const existing = await prisma.conversation.findFirst({
     where: { id, organizationId: orgId },
-    select: { id: true, phoneNumber: true },
+    select: { id: true, phoneNumber: true, chatLid: true },
   });
-  
+
   if (!existing) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
+
+  // Identificador canônico: prefere número real; ignora entradas "lid:xxx"
+  const canonicalPhone = existing.phoneNumber?.startsWith("lid:") ? null : existing.phoneNumber;
 
   // Atualiza também a lista global de números bloqueados em AIConfig
   const aiConfig = await prisma.aIConfig.findUnique({
     where: { organizationId: orgId },
   });
 
-  if (aiConfig) {
-    let blockedNumbers = Array.isArray(aiConfig.blockedNumbers) 
-      ? [...(aiConfig.blockedNumbers as any[])] 
+  if (aiConfig && canonicalPhone) {
+    const digits = (v: string) => v.replace(/\D/g, "");
+    let blockedNumbers = Array.isArray(aiConfig.blockedNumbers)
+      ? [...(aiConfig.blockedNumbers as any[])]
       : [];
-    
+
     let updated = false;
-    
+
     if (blocked) {
-      // Adiciona se não existir
-      if (!blockedNumbers.some(item => String(item.phone || "").replace(/\D/g, "") === existing.phoneNumber)) {
-        blockedNumbers.push({ phone: existing.phoneNumber, name: "Bloqueado via Chat" });
+      // Adiciona se não existir (compara dígitos)
+      const alreadyBlocked = blockedNumbers.some(
+        item => digits(String(item.phone || "")) === digits(canonicalPhone)
+      );
+      if (!alreadyBlocked) {
+        blockedNumbers.push({ phone: canonicalPhone, name: "Bloqueado via Chat" });
         updated = true;
       }
     } else {
       // Remove se existir
       const originalLength = blockedNumbers.length;
       blockedNumbers = blockedNumbers.filter(
-        item => String(item.phone || "").replace(/\D/g, "") !== existing.phoneNumber
+        item => digits(String(item.phone || "")) !== digits(canonicalPhone)
       );
       if (blockedNumbers.length !== originalLength) {
         updated = true;

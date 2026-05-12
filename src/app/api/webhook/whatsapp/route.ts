@@ -25,9 +25,7 @@ export async function POST(req: NextRequest) {
   }
 
   // LOG TEMPORÁRIO — remover após diagnóstico
-  if (body.fromMe === true || body.isFromMe === true) {
-    console.log("[webhook] fromMe body:", JSON.stringify(body, null, 2));
-  }
+  console.log("[webhook] RAW BODY:", JSON.stringify(body, null, 2));
 
   const parsed = parseWhatsAppWebhookBody(body);
   if ("skip" in parsed) {
@@ -54,7 +52,11 @@ export async function POST(req: NextRequest) {
   const documentName = parsed.documentName;
 
   // ── Verifica bloqueio em massa ──────────────────────────────────────────
-  if (isPhoneBlocked((aiConfig as any)?.blockedNumbers, phoneNumber)) {
+  const blockedList = (aiConfig as any)?.blockedNumbers;
+  if (
+    isPhoneBlocked(blockedList, phoneNumber) ||
+    (chatLid && isPhoneBlocked(blockedList, chatLid))
+  ) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 
@@ -342,6 +344,21 @@ export async function POST(req: NextRequest) {
     if (!convAfterAI?.aiEnabled || operatorRespondedDuringAI) {
       console.log(`[Webhook] AI bloqueada para ${phoneNumber}: operador respondeu durante processamento.`);
       return NextResponse.json({ ok: true, ai: "blocked_by_operator" });
+    }
+
+    // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
+    // (ex: cliente envia PDF + ZIP juntos — Z-API dispara dois eventos quase simultâneos).
+    const recentAiReply = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        isAI: true,
+        createdAt: { gte: new Date(clientMessageReceivedAt.getTime() - 15_000) },
+      },
+      select: { id: true },
+    });
+    if (recentAiReply) {
+      console.log(`[Webhook] Resposta da IA suprimida para ${phoneNumber}: já foi respondido nos últimos 15s.`);
+      return NextResponse.json({ ok: true, ai: "suppressed_duplicate" });
     }
 
     const aiMsg = await prisma.message.create({
