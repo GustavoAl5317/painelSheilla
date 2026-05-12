@@ -3,6 +3,7 @@ import { resolveCredential } from "@/lib/credentials";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { runAIChat } from "./ai-service";
 import type { AIMessage, LeadChatMode } from "./ai-service";
+import { isPhoneBlocked } from "@/lib/blocked-phones";
 
 async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId } });
@@ -16,16 +17,9 @@ async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   }
 
   // Verifica bloqueio em massa por número
-  const blockedList = (aiConfig as any).blockedNumbers;
-  if (Array.isArray(blockedList)) {
-    const isBlocked = blockedList.some((item: any) => {
-      const p = String(item.phone || "").replace(/\D/g, "");
-      return p === phoneNumber;
-    });
-    if (isBlocked) {
-      console.log(`[AI ignore] Número ${phoneNumber} está na lista de bloqueio em massa.`);
-      return null;
-    }
+  if (isPhoneBlocked((aiConfig as any).blockedNumbers, phoneNumber)) {
+    console.log(`[AI ignore] Número ${phoneNumber} está na lista de bloqueio em massa.`);
+    return null;
   }
 
   const provider: "openai" | "anthropic" = aiConfig.provider === "ANTHROPIC" ? "anthropic" : "openai";

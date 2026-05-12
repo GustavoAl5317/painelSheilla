@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/ai/lead-qualifier";
 import { transcribeAudio, analyzeMediaWithAI } from "@/lib/ai/ai-service";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { isPhoneBlocked } from "@/lib/blocked-phones";
 import { parseWhatsAppWebhookBody } from "./parse-payload";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { emit } from "@/lib/sse-emitter";
@@ -52,11 +53,7 @@ export async function POST(req: NextRequest) {
   const documentName = parsed.documentName;
 
   // ── Verifica bloqueio em massa ──────────────────────────────────────────
-  const blockedList = (aiConfig as any)?.blockedNumbers;
-  if (Array.isArray(blockedList) && blockedList.some((item: any) => {
-    const p = String(item.phone || "").replace(/\D/g, "");
-    return p === phoneNumber;
-  })) {
+  if (isPhoneBlocked((aiConfig as any)?.blockedNumbers, phoneNumber)) {
     return NextResponse.json({ ok: true, ignored: "mass_blocked_number" });
   }
 

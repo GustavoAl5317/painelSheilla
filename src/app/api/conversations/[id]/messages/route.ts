@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { isPhoneBlocked } from "@/lib/blocked-phones";
 
 const bodySchema = z.object({
   content: z.string().min(1).max(4000),
@@ -63,12 +64,7 @@ export async function POST(
   }
 
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId: orgId } });
-  const blockedList = (aiConfig as any)?.blockedNumbers;
-  if (Array.isArray(blockedList) && blockedList.some((item: any) => {
-    const p = String(item.phone || "").replace(/\D/g, "");
-    const convP = conversation.phoneNumber.replace(/\D/g, "");
-    return p === convP;
-  })) {
+  if (isPhoneBlocked((aiConfig as any)?.blockedNumbers, conversation.phoneNumber)) {
     return NextResponse.json({ error: "Contato bloqueado" }, { status: 403 });
   }
 
