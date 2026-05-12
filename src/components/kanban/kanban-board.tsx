@@ -7,6 +7,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -60,7 +61,8 @@ export function KanbanBoard({ initialStages, organizationId }: KanbanBoardProps)
   useEffect(() => setMounted(true), []);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
   // Busca em `stages` (fonte da verdade), não em filteredStages

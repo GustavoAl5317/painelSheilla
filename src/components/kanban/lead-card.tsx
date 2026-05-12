@@ -41,6 +41,7 @@ export function LeadCard({ lead, isDragging = false }: LeadCardProps) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    touchAction: "none",
   };
 
   return (

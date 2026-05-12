@@ -71,9 +71,29 @@ export async function POST(req: NextRequest) {
       })
     : null;
   if (!conversation && phoneNumber) {
+    // Busca exata primeiro
     conversation = await prisma.conversation.findFirst({
       where: { organizationId: org.id, phoneNumber },
     });
+
+    // Tolerância: Z-API às vezes envia fromMe sem o 9 extra (12 dígitos) enquanto
+    // a conversa foi criada com 13 dígitos (ou vice-versa). Tenta o formato alternativo.
+    if (!conversation && phoneNumber.startsWith("55") && (phoneNumber.length === 12 || phoneNumber.length === 13)) {
+      const alt =
+        phoneNumber.length === 13
+          ? `${phoneNumber.slice(0, 4)}${phoneNumber.slice(5)}`   // remove o 9: 13→12
+          : `${phoneNumber.slice(0, 4)}9${phoneNumber.slice(4)}`; // insere o 9: 12→13
+      conversation = await prisma.conversation.findFirst({
+        where: { organizationId: org.id, phoneNumber: alt },
+      });
+      // Atualiza para o formato canônico (13 dígitos) caso tenha sido salvo no formato antigo
+      if (conversation && phoneNumber.length === 13 && conversation.phoneNumber !== phoneNumber) {
+        conversation = await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { phoneNumber },
+        }).catch(() => conversation);
+      }
+    }
   }
 
   // Conversa já existia mas faltava info (ex.: tinha só chatLid e agora veio o

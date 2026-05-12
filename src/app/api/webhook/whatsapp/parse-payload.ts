@@ -122,9 +122,19 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "not_a_valid_phone" };
   }
 
-  // Números BR sem código de país recebem prefixo 55 — padroniza para 5511999998888.
-  const normalizedDigits =
-    !rawIsLid && (digits.length === 10 || digits.length === 11) ? `55${digits}` : digits;
+  // Números BR sem código de país recebem prefixo 55.
+  // Normaliza para sempre 13 dígitos (55 + DDD 2 + 9 + número 8) — formato canônico BR.
+  // Z-API às vezes envia fromMe com 12 dígitos (sem o 9 extra); adicionamos o 9.
+  let normalizedDigits = digits;
+  if (!rawIsLid) {
+    if (digits.length === 10 || digits.length === 11) {
+      normalizedDigits = `55${digits}`;
+    }
+    // 55 + DDD(2) + 8 dígitos = 12 → insere o 9 após o DDD para ficar 13
+    if (normalizedDigits.startsWith("55") && normalizedDigits.length === 12) {
+      normalizedDigits = `${normalizedDigits.slice(0, 4)}9${normalizedDigits.slice(4)}`;
+    }
+  }
   const phone = rawIsLid ? "" : normalizedDigits;
   const chatLid = chatLidFull
     ? `${chatLidFull.replace(/@.*$/, "").replace(/\D/g, "")}@lid`
