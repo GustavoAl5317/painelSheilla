@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ConvertLeadButton } from "@/components/kanban/convert-lead-button";
 import { AgendaModalChat } from "@/components/agenda/agenda-modal-chat";
+import { normalizeBrazilianPhone } from "@/lib/phone-normalize";
 import type { Conversation, Lead, Message as PrismaMessage } from "@prisma/client";
 
 type ConvRow = Conversation & {
@@ -336,7 +337,7 @@ export function ChatShell() {
                       {c.aiEnabled && !c.isBlocked && (
                         <Bot className="h-3 w-3 text-blue-500 shrink-0" />
                       )}
-                      <span className="truncate">{lastMsg?.content ?? c.phoneNumber}</span>
+                      <span className="truncate">{lastMsg?.content ?? normalizeBrazilianPhone(c.phoneNumber)}</span>
                     </p>
                     {c.unreadCount > 0 && !c.isBlocked && (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-green-500 text-[10px] font-bold text-white px-1.5 shrink-0">
@@ -385,7 +386,7 @@ export function ChatShell() {
                       <span className="text-[11px] text-blue-500 font-medium">{selected.lead.legalArea}</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{selected.phoneNumber}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{normalizeBrazilianPhone(selected.phoneNumber)}</p>
                 </div>
               </div>
 

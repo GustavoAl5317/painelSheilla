@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { normalizeBrazilianPhone } from "@/lib/phone-normalize";
 
 type BlockedContact = {
   phone: string;
@@ -41,7 +42,7 @@ export function MassBlockManager() {
   }, []);
 
   const addContact = () => {
-    const cleanPhone = newPhone.trim().replace(/\D/g, "");
+    const cleanPhone = normalizeBrazilianPhone(newPhone);
     if (!cleanPhone) {
       toast.error("O número de telefone é obrigatório.");
       return;

@@ -103,7 +103,10 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   // o sender saiba mandar de volta no formato correto (Z-API exige xxxxxx@lid).
   const isLid = rawPhone.includes("@lid");
   const digits = rawPhone.replace(/@.*$/, "").replace(/\D/g, "");
-  const phone = isLid ? `${digits}@lid` : digits;
+  // Números BR sem código de país recebem prefixo 55 — padroniza para 5511999998888.
+  const normalizedDigits =
+    !isLid && (digits.length === 10 || digits.length === 11) ? `55${digits}` : digits;
+  const phone = isLid ? `${digits}@lid` : normalizedDigits;
 
   // IDs de grupo podem ter muitos dígitos (ex: 18 dígitos), enquanto telefones têm no máximo 13-14
   if (digits.length > 15) {
