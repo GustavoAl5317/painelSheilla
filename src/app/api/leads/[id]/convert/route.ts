@@ -85,6 +85,35 @@ export async function POST(
     },
   });
 
+  // ── Cria cartão no CRM interno (primeira coluna) se ainda não existir para este cliente ──
+  const existingCrmCard = await prisma.crmCard.findFirst({
+    where: { organizationId, clientId: client.id }
+  });
+
+  if (!existingCrmCard) {
+    const firstBoard = await prisma.crmBoard.findFirst({
+      where: { organizationId },
+      orderBy: { order: "asc" }
+    });
+
+    if (firstBoard) {
+      await prisma.crmCard.create({
+        data: {
+          organizationId,
+          boardId: firstBoard.id,
+          clientId: client.id,
+          title: client.name.toUpperCase(),
+          description: [
+            `**Telefone:** ${client.phone ?? "N/A"}`,
+            `**CPF:** ${client.cpf ?? "N/A"}`,
+            `**E-mail:** ${client.email ?? "N/A"}`,
+            notes ? `\n**Notas da Conversão:**\n${notes}` : "",
+          ].filter(Boolean).join("\n"),
+        },
+      });
+    }
+  }
+
   const card = await ensureClientCaseCard(organizationId, client.id);
 
   const procNumberClean = typeof processNumber === "string" ? processNumber.trim() : "";
