@@ -248,26 +248,9 @@ export async function processIncomingMessage(
       ? "established"
       : "cold";
 
-  // Cenário 1: mensagem sugere conversa em andamento mas não há histórico nem cadastro.
-  const semContexto =
-    leadMode === "established" &&
-    history.length === 0 &&
-    !clientContext &&
-    textSuggestsOngoing(userMessage);
-
-  // Cenário 2: a doutora já respondeu mensagens nesta conversa, mas a IA nunca participou.
-  // A IA não tem contexto da conversa em andamento — não deve atrapalhar pedindo dados de
-  // triagem (nome, e-mail, etc). Avisa que a doutora retorna em breve e transfere.
-  const conversaJaRolando = operatorIntervened && !hadAiReply;
-
-  if (semContexto || conversaJaRolando) {
-    return {
-      content: "Olá! Recebi sua mensagem. Nossa equipe já foi notificada e a doutora responderá em breve. 😊",
-      shouldTransferToHuman: true,
-      triageComplete: false,
-      qualifiedData: { score: 0 },
-    };
-  }
+  // Os cenários de "semContexto" e "conversaJaRolando" agora são tratados
+  // diretamente pela IA, que usará o prompt do sistema para avisar que é a
+  // assistente virtual e que não tem acesso ao histórico anterior.
 
   const result = await runAIChat(config, history, userMessage, {
     clientContext,

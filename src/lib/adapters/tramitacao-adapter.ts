@@ -170,6 +170,22 @@ export async function tiSearchByCPF(
   return customers.find(c => c.cpf_cnpj?.replace(/\D/g, "") === cleanCpf) ?? null;
 }
 
+export async function tiSearchByPhone(
+  organizationId: string,
+  phone: string
+): Promise<TICustomer | null> {
+  const headers = await getHeaders(organizationId);
+  const baseUrl = await getBaseUrl(organizationId);
+  const cleanPhone = phone.replace(/\D/g, "");
+  if (!cleanPhone) return null;
+
+  const res = await fetch(`${baseUrl}/clientes?q=${cleanPhone}`, { headers });
+  if (!res.ok) return null;
+  const json = await res.json();
+  const customers: TICustomer[] = json.customers ?? [];
+  return customers.find(c => c.phone_mobile?.replace(/\D/g, "").includes(cleanPhone)) ?? null;
+}
+
 export async function tiCreateNote(
   organizationId: string,
   tiCustomerId: number,

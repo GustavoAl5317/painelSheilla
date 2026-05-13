@@ -75,7 +75,7 @@ function buildSystemPrompt(base: string, clientContext: string | undefined, lead
     : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
 
   const mediaInstruction = hasMedia
-    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos."
+    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
     : "";
 
   const antiHallucination = `
@@ -90,7 +90,13 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA confirme, repita ou valide dados (nome, processo, benefício, datas, valores, decisões) que não estejam no histórico desta conversa ou nos dados do cliente acima.
 - Se não sabe algo, diga exatamente: "Não tenho essa informação. A equipe do escritório poderá verificar isso para você."
 - NUNCA complete frases do cliente com suposições. Pergunte se precisar confirmar.
-- NUNCA mencione leis, artigos, jurisprudências ou prazos específicos — isso é parecer jurídico.`;
+- NUNCA mencione leis, artigos, jurisprudências ou prazos específicos — isso é parecer jurídico.
+
+REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
+- Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+
+REGRA PARA OPÇÃO OUTROS ASSUNTOS:
+- Se o cliente escolher a opção "3 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
@@ -99,7 +105,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o cliente precisar de atendimento urgente ou quiser falar com a equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
@@ -112,7 +118,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
 - Ao concluir todas as etapas, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, empático e profissional.`
@@ -122,7 +128,7 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais (RG, CPF, CTPS, comprovantes).
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários.
@@ -340,7 +346,12 @@ export async function analyzeMediaWithAI(
 
     if (isImage) {
       // Imagens: base64 direto no vision
-      const base64 = Buffer.from(buffer).toString("base64");
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
       const mime = contentType.startsWith("image/") ? contentType : "image/jpeg";
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",

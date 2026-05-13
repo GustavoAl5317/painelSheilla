@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { tiCreateCustomer, tiSearchByCPF, tiUpsertNote, tiGetDossier } from "@/lib/adapters/tramitacao-adapter";
+import { tiCreateCustomer, tiSearchByCPF, tiSearchByPhone, tiUpsertNote, tiGetDossier } from "@/lib/adapters/tramitacao-adapter";
 import { trelloSyncClientCard } from "@/lib/adapters/trello-adapter";
 import { appendCaseCardEntry } from "@/lib/case-card";
 
@@ -27,19 +27,25 @@ export async function POST(
   });
 
   if (!client) return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
-  if (!client.cpf) return NextResponse.json({ error: "CPF é obrigatório para enviar ao Tramitação Inteligente" }, { status: 422 });
+  if (!client.cpf && !client.phone) {
+    return NextResponse.json({ error: "CPF ou Telefone são obrigatórios para sincronizar com a Tramitação Inteligente." }, { status: 422 });
+  }
 
   try {
     // ── 1. Garante que o cliente existe na TI ─────────────────────────────────
     let tiCustomer = client.tramitacaoCustomerId
       ? await tiGetDossier(orgId, client.tramitacaoCustomerId).catch(() => null)
-      : await tiSearchByCPF(orgId, client.cpf);
+      : client.cpf
+        ? await tiSearchByCPF(orgId, client.cpf)
+        : client.phone
+          ? await tiSearchByPhone(orgId, client.phone)
+          : null;
 
     if (!tiCustomer) {
       tiCustomer = await tiCreateCustomer(orgId, {
         name: client.name,
         phone_mobile: client.phone ?? "",
-        cpf_cnpj: client.cpf,
+        cpf_cnpj: client.cpf ?? "",
         email: client.email ?? "",
       });
     }
@@ -56,7 +62,7 @@ export async function POST(
       .join("\n");
     const noteContent = [
       `Nome: ${client.name}`,
-      `CPF: ${client.cpf}`,
+      `CPF: ${client.cpf ?? "Não informado"}`,
       `Telefone: ${client.phone ?? "Não informado"}`,
       `E-mail: ${client.email ?? "Não informado"}`,
       client.notes ? `\nNotas: ${client.notes}` : "",

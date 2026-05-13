@@ -19,9 +19,9 @@ export async function POST(
   const { name, phone, email, cpf, notes, processNumber, processTitle, processArea, processCourt } = body;
 
   const cpfDigits = typeof cpf === "string" ? normalizeCpfDigits(cpf) : "";
-  if (!cpfDigits || !isValidCpf(cpfDigits)) {
+  if (cpfDigits && !isValidCpf(cpfDigits)) {
     return NextResponse.json(
-      { error: "CPF é obrigatório e deve ser válido (11 dígitos)." },
+      { error: "Se informado, o CPF deve ser válido (11 dígitos)." },
       { status: 400 }
     );
   }
@@ -32,9 +32,9 @@ export async function POST(
   }
 
   // Verifica se já existe cliente com este CPF (importado da TI ou cadastrado antes)
-  const existingByCpf = await prisma.client.findFirst({
-    where: { organizationId, cpf: cpfDigits },
-  });
+  const existingByCpf = cpfDigits
+    ? await prisma.client.findFirst({ where: { organizationId, cpf: cpfDigits } })
+    : null;
 
   let client;
   if (existingByCpf) {
@@ -86,10 +86,10 @@ export async function POST(
 
   const orphanDeadlines = orphanProcesses.length > 0
     ? await prisma.deadline.findMany({
-        where: { organizationId, processId: { in: orphanProcesses.map(p => p.id) } },
+        where: { organizationId, processId: { in: orphanProcesses.map((p: { id: string }) => p.id) } },
         select: { processId: true, description: true },
       })
-    : [];
+    : [] as Array<{ processId: string | null; description: string | null }>;
 
   const cpfPattern = new RegExp(
     cpfDigits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1\\.?$2\\.?$3-?$4")
@@ -103,9 +103,9 @@ export async function POST(
       orphan.number.replace(/[^\d]/g, "").slice(0, 20) ===
         procNumberClean.replace(/[^\d]/g, "").slice(0, 20);
 
-    const deadlinesForProcess = orphanDeadlines.filter(d => d.processId === orphan.id);
+    const deadlinesForProcess = orphanDeadlines.filter((d: { processId: string | null }) => d.processId === orphan.id);
     const cpfInDeadlines = deadlinesForProcess.some(
-      d => d.description && cpfPattern.test(d.description)
+      (d: { description: string | null }) => d.description && cpfPattern.test(d.description)
     );
 
     if (numberMatch || cpfInDeadlines) {

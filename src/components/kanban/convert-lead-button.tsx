@@ -47,7 +47,7 @@ export function ConvertLeadButton({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
-  const cpfOk = isValidCpf(normalizeCpfDigits(form.cpf));
+  const cpfOk = form.cpf.trim() === "" || isValidCpf(normalizeCpfDigits(form.cpf));
   const canSubmit = form.name.trim().length > 0 && cpfOk;
 
   function handleClose() {
@@ -58,7 +58,7 @@ export function ConvertLeadButton({
   const handleConvert = async () => {
     setError(null);
     if (!canSubmit) {
-      setError("Informe o nome e um CPF válido (11 dígitos).");
+      setError("Informe o nome. Se informar CPF, deve ser válido (11 dígitos).");
       return;
     }
     setLoading(true);
@@ -70,6 +70,14 @@ export function ConvertLeadButton({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        if (data.client?.id) {
+          // Dispara a sincronização com Tramitação Inteligente e Trello automaticamente
+          fetch(`/api/clients/${data.client.id}/tramitacao`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ organizationId, syncTrello: true }),
+          }).catch(err => console.error("Erro no auto-sync da TI/Trello:", err));
+        }
         setDone(true);
         setOpen(false);
         onConverted?.();
@@ -117,8 +125,8 @@ export function ConvertLeadButton({
 
           <p className="text-sm text-gray-500">
             {autoOpen
-              ? "O CPF é obrigatório. Os demais campos já estão preenchidos com os dados do lead."
-              : "Confirme os dados. O CPF é obrigatório para virar cliente."}
+              ? "Confirme os dados para converter. O CPF é opcional."
+              : "Confirme os dados. O CPF é opcional, mas recomendado para integração."}
           </p>
           {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -136,7 +144,7 @@ export function ConvertLeadButton({
               <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>CPF <span className="text-red-500">*</span></Label>
+              <Label>CPF</Label>
               <Input
                 placeholder="000.000.000-00"
                 value={form.cpf}
