@@ -82,3 +82,21 @@ export function isValidCpf(input: string): boolean {
   if (rest === 10) rest = 0;
   return rest === parseInt(d[10]!, 10);
 }
+
+/** Gera um CPF válido matematicamente (apenas dígitos). */
+export function generateRandomCpf(): string {
+  const rnd = (n: number) => Math.floor(Math.random() * n);
+  const n = Array.from({ length: 9 }, () => rnd(10));
+
+  const calcDigit = (arr: number[]) => {
+    const weights = Array.from({ length: arr.length + 1 }, (_, i) => arr.length + 1 - i);
+    const sum = arr.reduce((acc, val, i) => acc + val * weights[i], 0);
+    const rest = sum % 11;
+    return rest < 2 ? 0 : 11 - rest;
+  };
+
+  n.push(calcDigit(n));
+  n.push(calcDigit(n));
+
+  return n.join("");
+}

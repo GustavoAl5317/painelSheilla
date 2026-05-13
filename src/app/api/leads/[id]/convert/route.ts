@@ -1,7 +1,8 @@
+/// <reference types="next" />
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isValidCpf, normalizeCpfDigits } from "@/lib/utils";
+import { isValidCpf, normalizeCpfDigits, generateRandomCpf } from "@/lib/utils";
 import { ensureClientCaseCard, appendCaseCardEntry } from "@/lib/case-card";
 import { resolveCredential } from "@/lib/credentials";
 import { summarizeCaseCardForWhatsApp } from "@/lib/ai/ai-service";
@@ -18,12 +19,26 @@ export async function POST(
   const body = await req.json();
   const { name, phone, email, cpf, notes, processNumber, processTitle, processArea, processCourt } = body;
 
-  const cpfDigits = typeof cpf === "string" ? normalizeCpfDigits(cpf) : "";
+  let cpfDigits = typeof cpf === "string" ? normalizeCpfDigits(cpf) : "";
   if (cpfDigits && !isValidCpf(cpfDigits)) {
     return NextResponse.json(
       { error: "Se informado, o CPF deve ser válido (11 dígitos)." },
       { status: 400 }
     );
+  }
+
+  // Se não informou CPF, gera um único para satisfazer integrações (Tramitação Inteligente, etc)
+  if (!cpfDigits) {
+    let attempts = 0;
+    while (attempts < 10) {
+      const candidate = generateRandomCpf();
+      const exists = await prisma.client.findFirst({ where: { organizationId, cpf: candidate } });
+      if (!exists) {
+        cpfDigits = candidate;
+        break;
+      }
+      attempts++;
+    }
   }
 
   const lead = await prisma.lead.findFirst({ where: { id, organizationId } });
