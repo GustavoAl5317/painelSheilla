@@ -174,7 +174,8 @@ export async function trelloSyncClientCard(
   const existing = await findCardByPhone(input.contactNumber, boardId, key, token);
 
   if (existing) {
-    const params = new URLSearchParams({ key, token, name: title, desc });
+    // Atualiza os dados, garante que esteja na primeira coluna (listId) e no topo (pos: top)
+    const params = new URLSearchParams({ key, token, idList: listId, name: title, desc, pos: "top" });
     if (matchLabel) params.set("idLabels", matchLabel.id);
     await fetch(`${BASE}/cards/${existing.id}?${params}`, { method: "PUT" });
     return existing;

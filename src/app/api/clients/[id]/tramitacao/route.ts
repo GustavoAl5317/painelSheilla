@@ -192,7 +192,7 @@ export async function POST(
         trelloCard = await trelloSyncClientCard(orgId, {
           name: client.name,
           contactNumber: client.phone ?? "",
-          cpf: client.cpf ?? undefined,
+          cpf: currentCpf ?? undefined,
           email: client.email ?? undefined,
           legalArea: firstProc?.legalArea ?? undefined,
           notes: client.notes ?? undefined,
