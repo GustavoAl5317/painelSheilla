@@ -63,8 +63,24 @@ function buildTiObservations(tiProc: TIProcess): string {
   });
 }
 
+function mergeProcessLists(...lists: TIProcess[][]): TIProcess[] {
+  const seen = new Set<string>();
+  const out: TIProcess[] = [];
+  for (const list of lists) {
+    for (const p of list) {
+      const rawNum = p.numero_processo_com_mascara ?? p.numero_processo ?? "";
+      const key = rawNum.replace(/\D/g, "").slice(0, 20);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 /**
  * Busca processos na TI (dossiê + endpoints auxiliares) e grava em Process vinculados ao cliente do painel.
+ * Sempre tenta todos os caminhos disponíveis da TI — não usa fallback em cascata.
  */
 export async function importProcessesFromTramitacaoForPainelClient(
   organizationId: string,
@@ -76,28 +92,36 @@ export async function importProcessesFromTramitacaoForPainelClient(
     return { imported: 0, updated: 0, totalFromTi: 0 };
   }
 
-  let merged: Record<string, unknown> = {
-    ...(typeof tiCustomer === "object" && tiCustomer !== null ? (tiCustomer as object) : {}),
-  };
-  let list = collectProcessesFromTICustomer(merged);
+  // Coleta de todas as fontes em paralelo para maximizar chances de encontrar processos
+  const fromCustomerObj = collectProcessesFromTICustomer(
+    typeof tiCustomer === "object" && tiCustomer !== null ? (tiCustomer as Record<string, unknown>) : {}
+  );
 
-  if (list.length === 0) {
-    try {
-      const fat = await tiFetchCustomerPayloadForProcesses(organizationId, base.id);
-      merged = { ...merged, ...fat };
-      list = collectProcessesFromTICustomer(merged);
-    } catch {
-      /* dossiê / include indisponível */
-    }
+  const [fatResult, specificResult] = await Promise.allSettled([
+    tiFetchCustomerPayloadForProcesses(organizationId, base.id),
+    tiFetchProcessesForCustomer(organizationId, base.id),
+  ]);
+
+  const fromFat =
+    fatResult.status === "fulfilled"
+      ? collectProcessesFromTICustomer(fatResult.value)
+      : [];
+
+  if (fatResult.status === "rejected") {
+    console.error("[TI import] tiFetchCustomerPayloadForProcesses falhou:", fatResult.reason);
   }
 
+  const fromSpecific =
+    specificResult.status === "fulfilled" ? specificResult.value : [];
+
+  if (specificResult.status === "rejected") {
+    console.error("[TI import] tiFetchProcessesForCustomer falhou:", specificResult.reason);
+  }
+
+  const list = mergeProcessLists(fromCustomerObj, fromFat, fromSpecific);
+
   if (list.length === 0) {
-    try {
-      const extra = await tiFetchProcessesForCustomer(organizationId, base.id);
-      if (extra.length > 0) list = extra;
-    } catch {
-      /* endpoints opcionais */
-    }
+    console.warn(`[TI import] cliente TI ${base.id} — nenhum processo encontrado em nenhum endpoint.`);
   }
 
   let imported = 0;
