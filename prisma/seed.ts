@@ -311,7 +311,12 @@ async function main() {
   // ─────────────────────────────────────────
   await prisma.aIConfig.upsert({
     where: { organizationId: org.id },
-    update: {},
+    update: {
+      greeting: CONFIG.ai.greeting,
+      systemPrompt: CONFIG.ai.systemPrompt,
+      qualificationQuestions: CONFIG.ai.qualificationQuestions,
+      transferToHumanKeywords: CONFIG.ai.transferKeywords,
+    },
     create: {
       organizationId: org.id,
       provider: CONFIG.ai.provider,
