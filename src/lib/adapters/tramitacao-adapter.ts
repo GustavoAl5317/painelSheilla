@@ -10,6 +10,7 @@ export interface TICustomerInput {
   phone_mobile?: string;
   cpf_cnpj: string;
   email?: string;
+  customer_type?: "cliente" | "contato" | "colaborador" | "parte";
   sexo?: string;
   birthdate?: string | null;
   mother_name?: string;

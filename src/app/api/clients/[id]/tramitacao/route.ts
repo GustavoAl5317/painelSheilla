@@ -70,6 +70,7 @@ export async function POST(
           phone_mobile: client.phone ?? "",
           cpf_cnpj: currentCpf ?? "",
           email: client.email ?? "",
+          customer_type: "contato",
         });
       }
 
