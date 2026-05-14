@@ -134,11 +134,19 @@ async function processWebhook(organizationId: string, payload: any) {
           }
 
           // Registra entrada na linha do tempo (visível ao cliente na página de acompanhamento)
-          const resumo = resumirPublicacao(pub.texto);
+          const textoResumido = pub.texto
+            ? (() => {
+                const limpo = pub.texto.replace(/\n+/g, " ").replace(/\s{2,}/g, " ").trim();
+                if (limpo.length <= 300) return limpo;
+                const corte = limpo.slice(0, 300);
+                const ultimo = Math.max(corte.lastIndexOf(". "), corte.lastIndexOf("! "), corte.lastIndexOf("? "));
+                return ultimo > 100 ? corte.slice(0, ultimo + 1) : `${corte}…`;
+              })()
+            : null;
           const entryLines = [
             pub.nomeClasse ? `**${pub.nomeClasse}**` : null,
             pub.nomeOrgao ?? pub.siglaTribunal ?? null,
-            resumo || null,
+            textoResumido || null,
           ].filter(Boolean).join("\n");
 
           if (entryLines) {
