@@ -375,44 +375,56 @@ export async function syncTIClients(organizationId: string): Promise<TISyncResul
           const tiProcRes = await importProcessesFromTramitacaoForPainelClient(organizationId, clientId, ti);
           result.tramitacaoProcessesImported += tiProcRes.imported + tiProcRes.updated;
 
-          // Garante que existe um ClientCaseCard e vincula ao primeiro processo importado
+          // Busca todos os processos deste cliente para criar/vincular cards
+          const clientProcesses = await prisma.process.findMany({
+            where: { organizationId, clientId },
+            orderBy: { createdAt: "asc" },
+          });
+
+          // Garante que existe um ClientCaseCard e vincula ao primeiro processo
           const caseCard = await ensureClientCaseCard(organizationId, clientId);
-          if (!caseCard.processId) {
-            const firstProcess = await prisma.process.findFirst({
-              where: { organizationId, clientId },
-              orderBy: { createdAt: "asc" },
+          if (!caseCard.processId && clientProcesses.length > 0) {
+            await prisma.clientCaseCard.update({
+              where: { id: caseCard.id },
+              data: { processId: clientProcesses[0]!.id },
             });
-            if (firstProcess) {
-              await prisma.clientCaseCard.update({
-                where: { id: caseCard.id },
-                data: { processId: firstProcess.id },
-              });
-            }
           }
 
-          // Cria card no CRM (primeira coluna) se o cliente ainda não tiver um
-          const existingCrmCard = await prisma.crmCard.findFirst({
-            where: { organizationId, clientId },
-          });
-          if (!existingCrmCard) {
+          // Para cada processo, cria um CrmCard vinculado ao processo (se ainda não existir)
+          if (clientProcesses.length > 0) {
             const firstBoard = await prisma.crmBoard.findFirst({
               where: { organizationId },
               orderBy: { order: "asc" },
             });
+
             if (firstBoard) {
-              await prisma.crmCard.create({
-                data: {
-                  organizationId,
-                  boardId: firstBoard.id,
-                  clientId,
-                  title: ti.name.trim().toUpperCase(),
-                  description: [
-                    `**Telefone:** ${rowSnapshot.phone ?? "N/A"}`,
-                    `**CPF:** ${rowSnapshot.cpf ?? "N/A"}`,
-                    `**E-mail:** ${rowSnapshot.email ?? "N/A"}`,
-                  ].join("\n"),
-                },
-              });
+              for (const proc of clientProcesses) {
+                const exists = await prisma.crmCard.findFirst({
+                  where: { organizationId, processId: proc.id },
+                });
+                if (exists) continue;
+
+                const title = [
+                  ti.name.trim().toUpperCase(),
+                  proc.number && proc.number !== "(a definir)" ? proc.number : null,
+                ].filter(Boolean).join(" — ");
+
+                await prisma.crmCard.create({
+                  data: {
+                    organizationId,
+                    boardId: firstBoard.id,
+                    clientId,
+                    processId: proc.id,
+                    title,
+                    description: [
+                      proc.legalArea ? `**Área:** ${proc.legalArea}` : null,
+                      proc.court ? `**Tribunal:** ${proc.court}` : null,
+                      `**Telefone:** ${rowSnapshot.phone ?? "N/A"}`,
+                      `**CPF:** ${rowSnapshot.cpf ?? "N/A"}`,
+                    ].filter(Boolean).join("\n"),
+                  },
+                });
+              }
             }
           }
         } catch (err) {

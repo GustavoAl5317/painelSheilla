@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tiCreateCustomer, tiSearchByCPF, tiSearchByPhone, tiUpsertNote, tiGetDossier } from "@/lib/adapters/tramitacao-adapter";
 import { importProcessesFromTramitacaoForPainelClient } from "@/lib/ti-client-process-import";
+import { ensureClientCaseCard } from "@/lib/case-card";
 import { trelloSyncClientCard } from "@/lib/adapters/trello-adapter";
 import { buildTramitacaoTriageNoteContent } from "@/lib/tramitacao-client-note";
 import { generateRandomCpf } from "@/lib/utils";
@@ -77,6 +78,55 @@ export async function POST(
         processesImported = tiProcRes.imported;
         processesUpdated = tiProcRes.updated;
         tiProcessesCount = tiProcRes.totalFromTi;
+
+        // Garante ClientCaseCard e cria CrmCard por processo importado
+        const clientProcesses = await prisma.process.findMany({
+          where: { organizationId: orgId, clientId: client.id },
+          orderBy: { createdAt: "asc" },
+        });
+
+        const caseCard = await ensureClientCaseCard(orgId, client.id);
+        if (!caseCard.processId && clientProcesses.length > 0) {
+          await prisma.clientCaseCard.update({
+            where: { id: caseCard.id },
+            data: { processId: clientProcesses[0]!.id },
+          });
+        }
+
+        const firstBoard = await prisma.crmBoard.findFirst({
+          where: { organizationId: orgId },
+          orderBy: { order: "asc" },
+        });
+
+        if (firstBoard) {
+          for (const proc of clientProcesses) {
+            const exists = await prisma.crmCard.findFirst({
+              where: { organizationId: orgId, processId: proc.id },
+            });
+            if (exists) continue;
+
+            const title = [
+              client.name.toUpperCase(),
+              proc.number && proc.number !== "(a definir)" ? proc.number : null,
+            ].filter(Boolean).join(" — ");
+
+            await prisma.crmCard.create({
+              data: {
+                organizationId: orgId,
+                boardId: firstBoard.id,
+                clientId: client.id,
+                processId: proc.id,
+                title,
+                description: [
+                  proc.legalArea ? `**Área:** ${proc.legalArea}` : null,
+                  proc.court ? `**Tribunal:** ${proc.court}` : null,
+                  client.phone ? `**Telefone:** ${client.phone}` : null,
+                  client.cpf ? `**CPF:** ${client.cpf}` : null,
+                ].filter(Boolean).join("\n"),
+              },
+            });
+          }
+        }
 
         const noteContent = await buildTramitacaoTriageNoteContent(
           {
