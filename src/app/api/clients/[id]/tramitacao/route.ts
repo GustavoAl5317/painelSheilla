@@ -75,6 +75,7 @@ export async function POST(
       if (tiCustomer) {
         const tiProcRes = await importProcessesFromTramitacaoForPainelClient(orgId, client.id, tiCustomer);
         processesImported = tiProcRes.imported;
+        processesUpdated = tiProcRes.updated;
         tiProcessesCount = tiProcRes.totalFromTi;
 
         const noteContent = await buildTramitacaoTriageNoteContent(

@@ -1,7 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { resolveCredential } from "@/lib/credentials";
-import { fetchComunicacoesOAB, mapItemToPub } from "@/lib/djen-sync";
 import { importProcessesFromTramitacaoForPainelClient } from "@/lib/ti-client-process-import";
 
 const DEFAULT_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
@@ -57,13 +56,6 @@ function buildNotes(ti: TICustomerRaw): string | undefined {
     ti.tags && ti.tags.length > 0 ? `Tags TI: ${ti.tags.map(t => t.name).join(", ")}` : null,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-function toISODateLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 async function fetchPage(
@@ -140,147 +132,157 @@ export async function syncTIClients(organizationId: string): Promise<TISyncResul
     return result;
   }
 
-  // ── Filtra apenas clientes com CPF válido ───────────────────────────────────
-  const validCustomers: Array<{ ti: TICustomerRaw; cpf: string }> = [];
+  const byTiFromApi = new Map<number, TICustomerRaw>();
   for (const ti of allCustomers) {
-    const cpf = ti.cpf_cnpj?.replace(/\D/g, "") ?? "";
-    if (!cpf || cpf.length < 11) { result.skipped++; continue; }
-    validCustomers.push({ ti, cpf });
+    byTiFromApi.set(ti.id, ti);
   }
+  const uniqueCustomers = [...byTiFromApi.values()];
 
-  // ── Carrega todos os clientes existentes de uma vez ─────────────────────────
-  const cpfList = validCustomers.map(v => v.cpf);
-  const tiIdList = validCustomers.map(v => v.ti.id);
+  const tiIds = [...byTiFromApi.keys()];
+  const cpfsForQuery = [
+    ...new Set(
+      uniqueCustomers
+        .map(c => c.cpf_cnpj?.replace(/\D/g, "") ?? "")
+        .filter(c => c.length >= 11)
+    ),
+  ];
+
+  type ClientRow = {
+    id: string;
+    cpf: string | null;
+    tramitacaoCustomerId: number | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    rg: string | null;
+    notes: string | null;
+  };
 
   const existingClients = await prisma.client.findMany({
     where: {
       organizationId,
       OR: [
-        { cpf: { in: cpfList } },
-        { tramitacaoCustomerId: { in: tiIdList } },
+        { tramitacaoCustomerId: { in: tiIds } },
+        ...(cpfsForQuery.length > 0 ? [{ cpf: { in: cpfsForQuery } }] : []),
       ],
     },
-    select: { id: true, cpf: true, tramitacaoCustomerId: true, phone: true, email: true, address: true, rg: true, notes: true },
+    select: {
+      id: true,
+      cpf: true,
+      tramitacaoCustomerId: true,
+      phone: true,
+      email: true,
+      address: true,
+      rg: true,
+      notes: true,
+    },
   });
 
-  const byCpf = new Map(existingClients.map(c => [c.cpf, c]));
-  const byTiId = new Map(existingClients.map(c => [c.tramitacaoCustomerId, c]));
-
-  // ── Busca publicações do DJEN para cruzar com CPFs novos ────────────────────
-  const oabRaw = await resolveCredential(organizationId, "DJEN_OAB");
-  let djenPubs: ReturnType<typeof mapItemToPub>[] = [];
-
-  if (oabRaw) {
-    const oabs = oabRaw.split(",").map(s => s.trim()).filter(Boolean);
-    const d0 = new Date();
-    d0.setDate(d0.getDate() - 90); // últimos 90 dias para cobrir histórico no primeiro sync
-    const dataInicio = toISODateLocal(d0);
-    const dataFim = toISODateLocal(new Date());
-
-    for (const oab of oabs) {
-      const numero = oab.replace(/[^0-9]/g, "");
-      const uf = oab.replace(/[^a-zA-Z]/g, "").toUpperCase();
-      try {
-        const items = await fetchComunicacoesOAB(numero, uf, dataInicio, dataFim);
-        djenPubs.push(...items.map(mapItemToPub));
-      } catch (err) {
-        result.errors.push(`DJEN OAB ${numero}/${uf}: ${(err as Error).message}`);
-      }
-    }
+  const byCpf = new Map<string, ClientRow>();
+  for (const c of existingClients) {
+    if (c.cpf) byCpf.set(c.cpf, c);
   }
-
-  // Índice: CPF (só dígitos) → lista de publicações que o mencionam
-  const pubsByCpf = new Map<string, typeof djenPubs>();
-  for (const pub of djenPubs) {
-    for (const cpf of pub.cpfs) {
-      if (!pubsByCpf.has(cpf)) pubsByCpf.set(cpf, []);
-      pubsByCpf.get(cpf)!.push(pub);
-    }
+  const byTiId = new Map<number, ClientRow>();
+  for (const c of existingClients) {
+    if (c.tramitacaoCustomerId != null) byTiId.set(c.tramitacaoCustomerId, c);
   }
 
   // ── Processa em lotes de 50 (upserts paralelos) ──────────────────────────────
   const BATCH_SIZE = 50;
   const now = new Date();
 
-  for (let i = 0; i < validCustomers.length; i += BATCH_SIZE) {
-    const batch = validCustomers.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < uniqueCustomers.length; i += BATCH_SIZE) {
+    const batch = uniqueCustomers.slice(i, i + BATCH_SIZE);
 
     await Promise.allSettled(
-      batch.map(async ({ ti, cpf }) => {
+      batch.map(async ti => {
         try {
+          if (!ti.name?.trim()) {
+            result.skipped++;
+            return;
+          }
+
+          const cpfDigits = ti.cpf_cnpj?.replace(/\D/g, "") ?? "";
+          const cpfOk = cpfDigits.length >= 11;
+          const cpfForDb = cpfOk ? cpfDigits : null;
+
           const address = buildAddress(ti);
           const tiNotes = buildNotes(ti);
-          const existing = byCpf.get(cpf) ?? byTiId.get(ti.id) ?? null;
+          const existing = byTiId.get(ti.id) ?? (cpfOk ? byCpf.get(cpfDigits) : undefined) ?? null;
 
           let clientId: string;
+          let rowSnapshot: ClientRow;
 
           if (existing) {
+            const mergedCpf = existing.cpf ?? cpfForDb ?? undefined;
             await prisma.client.update({
               where: { id: existing.id },
               data: {
-                tramitacaoCustomerId:   ti.id,
+                tramitacaoCustomerId: ti.id,
                 tramitacaoCustomerUuid: ti.uuid,
-                tramitacaoSyncStatus:   "Sincronizado",
-                tramitacaoSyncedAt:     now,
-                phone:   existing.phone   || ti.phone_mobile?.replace(/\D/g, "") || undefined,
-                email:   existing.email   || ti.email || undefined,
+                tramitacaoSyncStatus: "Sincronizado",
+                tramitacaoSyncedAt: now,
+                name: ti.name.trim(),
+                cpf: mergedCpf ?? undefined,
+                phone: existing.phone || ti.phone_mobile?.replace(/\D/g, "") || undefined,
+                email: existing.email || ti.email || undefined,
                 address: existing.address || address || undefined,
-                rg:      existing.rg      || ti.rg_numero?.trim() || undefined,
-                notes:   existing.notes   || tiNotes || undefined,
+                rg: existing.rg || ti.rg_numero?.trim() || undefined,
+                notes: existing.notes || tiNotes || undefined,
               },
             });
             clientId = existing.id;
             result.updated++;
+            rowSnapshot = {
+              id: clientId,
+              cpf: mergedCpf ?? null,
+              tramitacaoCustomerId: ti.id,
+              phone: existing.phone || ti.phone_mobile?.replace(/\D/g, "") || null,
+              email: existing.email || ti.email || null,
+              address: existing.address || address || null,
+              rg: existing.rg || ti.rg_numero?.trim() || null,
+              notes: existing.notes || tiNotes || null,
+            };
           } else {
             const created = await prisma.client.create({
               data: {
                 organizationId,
-                name:  ti.name,
-                cpf,
+                name: ti.name.trim(),
+                cpf: cpfForDb ?? undefined,
                 phone: ti.phone_mobile?.replace(/\D/g, "") || undefined,
                 email: ti.email || undefined,
-                rg:    ti.rg_numero?.trim() || undefined,
+                rg: ti.rg_numero?.trim() || undefined,
                 address: address || undefined,
                 notes: tiNotes || undefined,
-                tramitacaoCustomerId:   ti.id,
+                tramitacaoCustomerId: ti.id,
                 tramitacaoCustomerUuid: ti.uuid,
-                tramitacaoSyncStatus:   "Sincronizado",
-                tramitacaoSyncedAt:     now,
+                tramitacaoSyncStatus: "Sincronizado",
+                tramitacaoSyncedAt: now,
               },
             });
             clientId = created.id;
             result.created++;
+            rowSnapshot = {
+              id: clientId,
+              cpf: cpfForDb,
+              tramitacaoCustomerId: ti.id,
+              phone: ti.phone_mobile?.replace(/\D/g, "") || null,
+              email: ti.email || null,
+              address: address || null,
+              rg: ti.rg_numero?.trim() || null,
+              notes: tiNotes || null,
+            };
           }
 
-          // ── Vincula processos encontrados no DJEN pelo CPF ─────────────────
-          const pubs = pubsByCpf.get(cpf) ?? [];
-          for (const pub of pubs) {
-            const processNumberSlice = pub.processo.replace(/[^\d]/g, "").slice(0, 20);
-            if (processNumberSlice.length < 10) continue;
-
-            const alreadyExists = await prisma.process.findFirst({
-              where: { organizationId, number: { contains: processNumberSlice } },
-            });
-            if (alreadyExists) continue;
-
-            await prisma.process.create({
-              data: {
-                organizationId,
-                clientId,
-                number: pub.processo.trim(),
-                title: pub.nomeClasse || pub.tipoComunicacao || `Acompanhamento — ${pub.processo}`,
-                court: pub.siglaTribunal ?? pub.nomeOrgao ?? undefined,
-                observations: "Processo vinculado automaticamente via DJEN no sync da Tramitação Inteligente.",
-                lastMovement: pub.rawText.slice(0, 500),
-                lastMovementAt: now,
-              },
-            });
-            result.processesLinked++;
+          if (existing?.cpf && cpfOk && existing.cpf !== cpfDigits) {
+            byCpf.delete(existing.cpf);
           }
+          byTiId.set(ti.id, rowSnapshot);
+          if (cpfOk) byCpf.set(cpfDigits, rowSnapshot);
 
           await new Promise(r => setTimeout(r, 60));
           const tiProcRes = await importProcessesFromTramitacaoForPainelClient(organizationId, clientId, ti);
-          result.tramitacaoProcessesImported += tiProcRes.imported;
+          result.tramitacaoProcessesImported += tiProcRes.imported + tiProcRes.updated;
         } catch (err) {
           result.errors.push(`[${ti.name}] ${(err as Error).message}`);
         }

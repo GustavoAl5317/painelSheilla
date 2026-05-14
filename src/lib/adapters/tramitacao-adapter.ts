@@ -43,6 +43,8 @@ export interface TIProcess {
   tribunal?: string;
   status?: string;
   ultima_movimentacao?: string;
+  /** Conteúdo bruto do item de processo na resposta da TI (para persistir no painel) */
+  tiSourceRaw?: Record<string, unknown> | null;
 }
 
 export interface TIMovement {
@@ -130,6 +132,14 @@ function pickMovementDate(mv: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+function snapshotFromObject(o: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(o)) as Record<string, unknown>;
+  } catch {
+    return { ...o };
+  }
+}
+
 /**
  * A documentação OpenAPI da TI não inclui `processes` em Customer, mas o JSON
  * real pode trazer `processes`, `processos`, ou números só em `last_movements`.
@@ -152,6 +162,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
     tribunal?: string;
     status?: string;
     ultima_movimentacao?: string;
+    tiSourceRaw?: Record<string, unknown> | null;
   }) => {
     const rawNum = row.numero_processo_com_mascara ?? row.numero_processo ?? "";
     const trimmed = rawNum.replace(/\s/g, "").trim();
@@ -166,6 +177,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
       tribunal: row.tribunal,
       status: row.status,
       ultima_movimentacao: row.ultima_movimentacao,
+      tiSourceRaw: row.tiSourceRaw ?? null,
     });
   };
 
@@ -184,7 +196,10 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
     if (!Array.isArray(list)) continue;
     for (const item of list) {
       if (typeof item === "string") {
-        push({ numero_processo: item });
+        push({
+          numero_processo: item,
+          tiSourceRaw: { origem: "lista_string", valor: item },
+        });
       } else {
         const o = asRecord(item);
         if (!o) continue;
@@ -209,6 +224,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
                 : typeof o.updatedAt === "string"
                   ? o.updatedAt
                   : undefined,
+          tiSourceRaw: snapshotFromObject(o),
         });
       }
     }
@@ -240,6 +256,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
           id: typeof mv.id === "number" ? mv.id : Number(mv.id) || 0,
           numero_processo: proc,
           ultima_movimentacao: pickMovementDate(mv),
+          tiSourceRaw: { origem: "movimento_ti", movimento: snapshotFromObject(mv) },
         });
       }
       const texto = typeof mv.texto === "string" ? mv.texto : "";
@@ -248,6 +265,11 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
           id: typeof mv.id === "number" ? mv.id : 0,
           numero_processo: found,
           ultima_movimentacao: pickMovementDate(mv),
+          tiSourceRaw: {
+            origem: "texto_movimento_cnj",
+            trecho: texto.slice(0, 4000),
+            movimento: snapshotFromObject(mv),
+          },
         });
       }
     }

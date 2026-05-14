@@ -56,10 +56,8 @@ export function SyncButton({ label, endpoint, organizationId, resultFormat = "sy
             `${result.updated ?? 0} atualizado(s)`,
             `${result.skipped ?? 0} sem CPF ignorado(s)`,
           ];
-          const djen = result.processesLinked ?? 0;
           const tiApi = result.tramitacaoProcessesImported ?? 0;
-          if (djen > 0) parts.push(`${djen} processo(s) via DJEN`);
-          if (tiApi > 0) parts.push(`${tiApi} processo(s) via Tramitação`);
+          if (tiApi > 0) parts.push(`${tiApi} processo(s) na TI gravados/atualizados`);
           return parts.join(", ");
         })()
       : `${result.synced ?? 0} item(ns) sincronizado(s)${result.errors?.length ? `, ${result.errors.length} aviso(s)` : ""}`
