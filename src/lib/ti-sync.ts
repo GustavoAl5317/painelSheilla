@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { resolveCredential } from "@/lib/credentials";
 import { importProcessesFromTramitacaoForPainelClient } from "@/lib/ti-client-process-import";
+import { ensureClientCaseCard } from "@/lib/case-card";
 
 const DEFAULT_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
 
@@ -373,6 +374,47 @@ export async function syncTIClients(organizationId: string): Promise<TISyncResul
           await new Promise(r => setTimeout(r, 60));
           const tiProcRes = await importProcessesFromTramitacaoForPainelClient(organizationId, clientId, ti);
           result.tramitacaoProcessesImported += tiProcRes.imported + tiProcRes.updated;
+
+          // Garante que existe um ClientCaseCard e vincula ao primeiro processo importado
+          const caseCard = await ensureClientCaseCard(organizationId, clientId);
+          if (!caseCard.processId) {
+            const firstProcess = await prisma.process.findFirst({
+              where: { organizationId, clientId },
+              orderBy: { createdAt: "asc" },
+            });
+            if (firstProcess) {
+              await prisma.clientCaseCard.update({
+                where: { id: caseCard.id },
+                data: { processId: firstProcess.id },
+              });
+            }
+          }
+
+          // Cria card no CRM (primeira coluna) se o cliente ainda não tiver um
+          const existingCrmCard = await prisma.crmCard.findFirst({
+            where: { organizationId, clientId },
+          });
+          if (!existingCrmCard) {
+            const firstBoard = await prisma.crmBoard.findFirst({
+              where: { organizationId },
+              orderBy: { order: "asc" },
+            });
+            if (firstBoard) {
+              await prisma.crmCard.create({
+                data: {
+                  organizationId,
+                  boardId: firstBoard.id,
+                  clientId,
+                  title: ti.name.trim().toUpperCase(),
+                  description: [
+                    `**Telefone:** ${rowSnapshot.phone ?? "N/A"}`,
+                    `**CPF:** ${rowSnapshot.cpf ?? "N/A"}`,
+                    `**E-mail:** ${rowSnapshot.email ?? "N/A"}`,
+                  ].join("\n"),
+                },
+              });
+            }
+          }
         } catch (err) {
           result.errors.push(`[${ti.name}] ${(err as Error).message}`);
         }
