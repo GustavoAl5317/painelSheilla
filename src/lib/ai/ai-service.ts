@@ -29,6 +29,41 @@ export interface AIServiceConfig {
 /** Lead frio (primeiro contato) vs conversa que já vem de um diálogo (WhatsApp com histórico / retorno). */
 export type LeadChatMode = "cold" | "established";
 
+/** Quando a IA não tem contexto suficiente (ex.: histórico antigo fora do painel) — não pedir nome/tipo de caso. */
+export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
+  "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
+
+function userMessageSuggestsOngoingOrReturn(t: string): boolean {
+  return /dra\.?|doutor|doutora|document|assin|enviei|mandei|pdf|scan|finalizei|carteira|trabalh|processo|retorno|escritóri|escritori|prazo|falta\s+alg|bom dia|boa tarde|boa noite|obrigad/i.test(
+    t
+  );
+}
+
+/** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
+function replySoundsLikeContextConfusion(assistantReply: string): boolean {
+  const t = assistantReply.toLowerCase();
+  return (
+    /não consegui identificar|nao consegui identificar|não consigo identificar|nao consigo identificar/.test(t) ||
+    /não consegui entender|nao consegui entender/.test(t) ||
+    /novo caso ou.*atendimento anterior|atendimento anterior.*novo caso/i.test(assistantReply) ||
+    (/atendimento anterior/.test(t) && /nome completo/.test(t)) ||
+    (/poderia me informar/.test(t) && (/nome completo/.test(t) || /seu nome/i.test(t))) ||
+    /em contato referente a um novo caso/i.test(t)
+  );
+}
+
+export function shouldUseUnclearContextFallbackReply(
+  leadMode: LeadChatMode,
+  _clientContext: string | undefined,
+  userMessage: string,
+  assistantReply: string
+): boolean {
+  if (!replySoundsLikeContextConfusion(assistantReply)) return false;
+  if (leadMode === "established") return true;
+  if (userMessageSuggestsOngoingOrReturn(userMessage)) return true;
+  return false;
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -56,23 +91,34 @@ export async function runAIChat(
 
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
 
-  const cleanContent = responseContent
+  let cleanContent = responseContent
     .replace("[TRANSFERIR_PARA_HUMANO]", "")
     .replace("[TRIAGEM COMPLETA]", "")
     .trim();
 
+  let finalShouldTransfer = shouldTransfer;
+  if (shouldUseUnclearContextFallbackReply(leadMode, clientContext, userMessage, cleanContent)) {
+    cleanContent = UNCLEAR_CONTEXT_FALLBACK_REPLY;
+    finalShouldTransfer = true;
+  }
+
   return {
     content: cleanContent,
-    shouldTransferToHuman: shouldTransfer,
+    shouldTransferToHuman: finalShouldTransfer,
     triageComplete,
     qualifiedData,
   };
 }
 
 function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
+  const handoffNoContextRule = `
+REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
+- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
+- Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
+
   const clientSection = clientContext
-    ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem informações cadastradas sobre esta pessoa. Se ela fizer referência a conversas, casos ou acordos anteriores que você não conhece, seja transparente: diga que você é o atendimento virtual e não tem acesso ao histórico anterior, e que a equipe do escritório poderá ajudá-la com isso.`;
+    ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.${handoffNoContextRule}`
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
@@ -91,6 +137,9 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Se não sabe algo, diga exatamente: "Não tenho essa informação. A equipe do escritório poderá verificar isso para você."
 - NUNCA complete frases do cliente com suposições. Pergunte se precisar confirmar.
 - NUNCA mencione leis, artigos, jurisprudências ou prazos específicos — isso é parecer jurídico.
+- NUNCA pergunte se há urgência, se o caso é urgente, se precisa com urgência, nem use "urgência", "urgente" ou "rápido" em perguntas ao cliente.
+- NUNCA pergunte sobre prazos processuais, vencimento ou "quanto tempo falta" só para saber se o caso é urgente ou prioritário.
+- Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
 
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
@@ -100,20 +149,21 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
-- Este é um cliente existente do escritório. Trate-o com prioridade e pelo nome.
+- Este é um cliente existente do escritório. Trate-o com cordialidade e pelo nome.
 - Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
 - NUNCA mencione valores, honorários ou garanta resultados.
 - NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
-- Se o cliente precisar de atendimento urgente ou quiser falar com a equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final.
+- Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
       ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
 - Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação).
 - Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas.
 - Se ainda não coletou nome, e-mail, área ou situação, colete agora — mesmo que a conversa seja antiga.
+- Se a mensagem for claramente retorno operacional (envio de documentos, assinaturas, "finalizei", agradecimento à Dra.) e o histórico NÃO mostra o encadeamento, NÃO peça nome completo nem "novo caso ou anterior". Use APENAS: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e [TRANSFERIR_PARA_HUMANO].
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
 - Ao concluir todas as etapas, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.

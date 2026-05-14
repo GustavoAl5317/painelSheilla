@@ -71,7 +71,7 @@ FLUXO OBRIGATÓRIO (siga esta ordem rigorosamente):
 2. E-MAIL: Se já tem o nome mas não tem o e-mail, pergunte o e-mail para contato.
 3. ÁREA: Se já tem nome e e-mail, apresente as opções:
    "Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Outros assuntos"
-4. SE ÁREA FOR "OUTROS": Responda exatamente: "Entendemos sua situação. No momento, nosso escritório atua exclusivamente em Direito Previdenciário e Trabalhista. Para outros assuntos, recomendamos que busque um profissional especializado na área. Atendimento encerrado." e encerre.
+4. SE ÁREA FOR "OUTROS": Responda exatamente: "Envie uma mensagem, por ESCRITO  ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e encerre.
 5. MÓDULO PREVIDENCIÁRIO (se escolheu opção 1):
    - Pergunte a situação: já tem benefício / quer novo / foi negado ou cessado
    - Identifique o tipo: aposentadoria, auxílio-doença, BPC/LOAS (deficiente ou idoso 65+), pensão por morte (expressar condolências), auxílio-acidente, acidente de trabalho, revisão, etc.
@@ -89,11 +89,12 @@ REGRAS ABSOLUTAS — NUNCA:
 • Marque consultas, reuniões, ligações ou confirme horários
 • Invente datas, prazos, decisões ou andamentos
 • Atenda casos fora das áreas: Previdenciário e Trabalhista
+• Pergunte se há urgência ou use "urgente"/"urgência" em perguntas ao cliente
 
 SITUAÇÕES ESPECIAIS:
 • Pensamentos autodestrutivos → indique CVV 188 e use [TRANSFERIR_PARA_HUMANO]
 • Violência iminente → indique 190/180 e use [TRANSFERIR_PARA_HUMANO]
-• Prazo judicial < 48h → use [TRANSFERIR_PARA_HUMANO] imediatamente
+• Prazo judicial < 48h (somente se o cliente JÁ TIVER INFORMADO isso) → use [TRANSFERIR_PARA_HUMANO] imediatamente. Não pergunte sobre prazos só para avaliar urgência.
 • Cliente emotivo → acolha sem pressa antes de prosseguir
 • Valores/honorários → "A Dra. Sheila e equipe jurídica apresentarão na análise do caso"
 • Agendamento → "Vou encaminhar para a equipe jurídica. Ela retornará pelo WhatsApp com as orientações."
@@ -269,7 +270,9 @@ async function main() {
 
   // Migra colunas antigas e remove etapas extras sem quebrar FK de Lead
   const idNew = (slug: string) =>
-    prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug } }).then(s => s?.id);
+    prisma.kanbanStage
+      .findFirst({ where: { organizationId: org.id, slug } })
+      .then((row: { id: string } | null) => row?.id);
   const [idAwaiting, idNewLead, idClosed] = await Promise.all([
     idNew("awaiting_data"),
     idNew("new_lead"),

@@ -2,9 +2,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { tiCreateCustomer, tiSearchByCPF, tiSearchByPhone, tiUpsertNote, tiGetDossier } from "@/lib/adapters/tramitacao-adapter";
+import {
+  tiCreateCustomer,
+  tiSearchByCPF,
+  tiSearchByPhone,
+  tiUpsertNote,
+  tiGetDossier,
+  collectProcessesFromTICustomer,
+  tiFetchProcessesForCustomer,
+} from "@/lib/adapters/tramitacao-adapter";
 import { trelloSyncClientCard } from "@/lib/adapters/trello-adapter";
-import { appendCaseCardEntry } from "@/lib/case-card";
+import { buildTramitacaoTriageNoteContent } from "@/lib/tramitacao-client-note";
 import { generateRandomCpf } from "@/lib/utils";
 
 // POST /api/clients/[id]/tramitacao
@@ -72,20 +80,40 @@ export async function POST(
       }
 
       if (tiCustomer) {
-        if (!tiCustomer.processes) {
-          tiCustomer = await tiGetDossier(orgId, tiCustomer.id);
+        let tiProcesses = collectProcessesFromTICustomer(tiCustomer);
+
+        if (tiProcesses.length === 0) {
+          try {
+            const dossier = await tiGetDossier(orgId, tiCustomer.id);
+            tiCustomer = { ...tiCustomer, ...dossier };
+            tiProcesses = collectProcessesFromTICustomer(tiCustomer);
+          } catch {
+            /* mantém tiCustomer anterior */
+          }
         }
 
-        const tiProcesses = tiCustomer.processes ?? [];
+        if (tiProcesses.length === 0) {
+          try {
+            const extra = await tiFetchProcessesForCustomer(orgId, tiCustomer.id);
+            if (extra.length > 0) tiProcesses = extra;
+          } catch {
+            /* endpoints opcionais indisponíveis */
+          }
+        }
+
         tiProcessesCount = tiProcesses.length;
-        
-        const noteContent = [
-          `Nome: ${client.name}`,
-          `CPF: ${client.cpf ?? "Não informado"}`,
-          `Telefone: ${client.phone ?? "Não informado"}`,
-          `E-mail: ${client.email ?? "Não informado"}`,
-          client.notes ? `\nNotas: ${client.notes}` : "",
-        ].filter(Boolean).join("\n");
+
+        const noteContent = await buildTramitacaoTriageNoteContent(
+          {
+            id: client.id,
+            name: client.name,
+            cpf: client.cpf,
+            phone: client.phone,
+            email: client.email,
+            notes: client.notes,
+          },
+          orgId
+        );
 
         await tiUpsertNote(orgId, tiCustomer.id, noteContent);
 
@@ -95,16 +123,29 @@ export async function POST(
           const cleanNumber = rawNumber.replace(/\s/g, "");
           if (!cleanNumber) continue;
 
+          const digits = cleanNumber.replace(/\D/g, "");
           const existing = await prisma.process.findFirst({
-            where: { organizationId: orgId, clientId: client.id, number: cleanNumber },
+            where: {
+              organizationId: orgId,
+              clientId: client.id,
+              OR: [{ number: cleanNumber }, ...(digits.length >= 15 ? [{ number: { contains: digits.slice(0, 20) } }] : [])],
+            },
           });
 
           if (!existing) {
+            let lastMovementAt: Date | undefined;
+            if (tiProc.ultima_movimentacao) {
+              const d = new Date(tiProc.ultima_movimentacao);
+              if (!Number.isNaN(d.getTime())) lastMovementAt = d;
+            }
             await prisma.process.create({
               data: {
                 organizationId: orgId,
                 clientId: client.id,
                 number: cleanNumber,
+                court: tiProc.tribunal ?? undefined,
+                lastMovement: tiProc.ultima_movimentacao ?? undefined,
+                lastMovementAt,
                 status: "ACTIVE",
               },
             });
