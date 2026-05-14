@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { ensureClientCaseCard } from "@/lib/case-card";
 import type { TIPublication } from "@/lib/adapters/tramitacao-adapter";
 
 // Webhook recebido da Tramitação Inteligente
@@ -93,6 +94,50 @@ async function processWebhook(organizationId: string, payload: any) {
           where: { id: linkedProcess.id },
           data: { clientId: linkedClient.id },
         });
+      }
+
+      // Garante ClientCaseCard e CrmCard para o processo/cliente
+      if (linkedClient) {
+        try {
+          const caseCard = await ensureClientCaseCard(organizationId, linkedClient.id);
+          if (!caseCard.processId) {
+            await prisma.clientCaseCard.update({
+              where: { id: caseCard.id },
+              data: { processId: linkedProcess.id },
+            });
+          }
+
+          const existingCrmCard = await prisma.crmCard.findFirst({
+            where: { organizationId, processId: linkedProcess.id },
+          });
+          if (!existingCrmCard) {
+            const firstBoard = await prisma.crmBoard.findFirst({
+              where: { organizationId },
+              orderBy: { order: "asc" },
+            });
+            if (firstBoard) {
+              const procNum = linkedProcess.number && linkedProcess.number !== "(a definir)"
+                ? linkedProcess.number
+                : null;
+              await prisma.crmCard.create({
+                data: {
+                  organizationId,
+                  boardId: firstBoard.id,
+                  clientId: linkedClient.id,
+                  processId: linkedProcess.id,
+                  title: [linkedClient.name.toUpperCase(), procNum].filter(Boolean).join(" — "),
+                  description: [
+                    linkedProcess.legalArea ? `**Área:** ${linkedProcess.legalArea}` : null,
+                    linkedProcess.court ? `**Tribunal:** ${linkedProcess.court}` : null,
+                    linkedClient.phone ? `**Telefone:** ${linkedClient.phone}` : null,
+                  ].filter(Boolean).join("\n"),
+                },
+              });
+            }
+          }
+        } catch {
+          // card creation failure não deve bloquear a criação do deadline
+        }
       }
 
       // Calcula prazo

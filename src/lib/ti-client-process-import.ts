@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import {
   collectProcessesFromTICustomer,
   tiFetchCustomerPayloadForProcesses,
-  tiFetchProcessesForCustomer,
   type TIProcess,
 } from "@/lib/adapters/tramitacao-adapter";
 
@@ -63,24 +62,11 @@ function buildTiObservations(tiProc: TIProcess): string {
   });
 }
 
-function mergeProcessLists(...lists: TIProcess[][]): TIProcess[] {
-  const seen = new Set<string>();
-  const out: TIProcess[] = [];
-  for (const list of lists) {
-    for (const p of list) {
-      const rawNum = p.numero_processo_com_mascara ?? p.numero_processo ?? "";
-      const key = rawNum.replace(/\D/g, "").slice(0, 20);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push(p);
-    }
-  }
-  return out;
-}
-
 /**
- * Busca processos na TI (dossiê + endpoints auxiliares) e grava em Process vinculados ao cliente do painel.
- * Sempre tenta todos os caminhos disponíveis da TI — não usa fallback em cascata.
+ * Tenta extrair processos do objeto do cliente TI (GET /clientes/{id}).
+ * NOTA: A API da TI não possui endpoint dedicado de processos — processos chegam
+ * via webhook publications.created. Esta função apenas extrai dados que a TI
+ * eventualmente embute no objeto do cliente.
  */
 export async function importProcessesFromTramitacaoForPainelClient(
   organizationId: string,
@@ -92,37 +78,35 @@ export async function importProcessesFromTramitacaoForPainelClient(
     return { imported: 0, updated: 0, totalFromTi: 0 };
   }
 
-  // Coleta de todas as fontes em paralelo para maximizar chances de encontrar processos
-  const fromCustomerObj = collectProcessesFromTICustomer(
-    typeof tiCustomer === "object" && tiCustomer !== null ? (tiCustomer as Record<string, unknown>) : {}
+  // Coleta processos embutidos no objeto do cliente (lista ou GET /clientes/{id})
+  const fromObj = collectProcessesFromTICustomer(
+    typeof tiCustomer === "object" && tiCustomer !== null
+      ? (tiCustomer as Record<string, unknown>)
+      : {}
   );
 
-  const [fatResult, specificResult] = await Promise.allSettled([
-    tiFetchCustomerPayloadForProcesses(organizationId, base.id),
-    tiFetchProcessesForCustomer(organizationId, base.id),
-  ]);
-
-  const fromFat =
-    fatResult.status === "fulfilled"
-      ? collectProcessesFromTICustomer(fatResult.value)
-      : [];
-
-  if (fatResult.status === "rejected") {
-    console.error("[TI import] tiFetchCustomerPayloadForProcesses falhou:", fatResult.reason);
+  // Tenta GET /clientes/{id} (único endpoint válido da TI para clientes)
+  let fromDossier: TIProcess[] = [];
+  try {
+    const fat = await tiFetchCustomerPayloadForProcesses(organizationId, base.id);
+    fromDossier = collectProcessesFromTICustomer(fat);
+  } catch {
+    // endpoint indisponível
   }
 
-  const fromSpecific =
-    specificResult.status === "fulfilled" ? specificResult.value : [];
-
-  if (specificResult.status === "rejected") {
-    console.error("[TI import] tiFetchProcessesForCustomer falhou:", specificResult.reason);
+  // Deduplica por número de processo
+  const seen = new Set<string>();
+  const list: TIProcess[] = [];
+  for (const p of [...fromObj, ...fromDossier]) {
+    const key = (p.numero_processo_com_mascara ?? p.numero_processo ?? "")
+      .replace(/\D/g, "")
+      .slice(0, 20);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    list.push(p);
   }
 
-  const list = mergeProcessLists(fromCustomerObj, fromFat, fromSpecific);
-
-  if (list.length === 0) {
-    console.warn(`[TI import] cliente TI ${base.id} — nenhum processo encontrado em nenhum endpoint.`);
-  }
+  if (list.length === 0) return { imported: 0, updated: 0, totalFromTi: 0 };
 
   let imported = 0;
   let updated = 0;
