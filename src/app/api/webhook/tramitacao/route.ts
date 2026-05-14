@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
 import { ensureClientCaseCard } from "@/lib/case-card";
-import { ensureClientPublicToken } from "@/lib/client-public-token";
 import type { TIPublication } from "@/lib/adapters/tramitacao-adapter";
 
 // Webhook recebido da Tramitação Inteligente
@@ -29,22 +27,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-/** Extrai as 1-2 primeiras frases de um texto de publicação para exibição ao cliente. */
-function resumirPublicacao(texto: string | undefined | null): string {
-  if (!texto) return "";
-  // Remove cabeçalhos típicos de diário (maiúsculas, datas, referências numéricas)
-  const limpo = texto
-    .replace(/\n+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  // Pega até 300 caracteres terminando em frase completa
-  if (limpo.length <= 300) return limpo;
-  const corte = limpo.slice(0, 300);
-  const ultimoPonto = Math.max(corte.lastIndexOf(". "), corte.lastIndexOf("! "), corte.lastIndexOf("? "));
-  if (ultimoPonto > 100) return `${corte.slice(0, ultimoPonto + 1)}`;
-  return `${corte}…`;
-}
 
 async function processWebhook(organizationId: string, payload: any) {
   // ── A. publications.created → garante Process + cria Deadline ───────────
@@ -213,57 +195,8 @@ async function processWebhook(organizationId: string, payload: any) {
         },
       });
 
-      // Notifica cliente via WhatsApp com resumo + link de acompanhamento
-      const conv = linkedClient?.conversations?.[0];
-      if (conv) {
-        const firstName = linkedClient!.name.split(" ")[0];
-        const resumo = resumirPublicacao(pub.texto);
-        const orgao = pub.siglaTribunal ?? pub.nomeOrgao ?? "";
-        const classe = pub.nomeClasse ?? "";
-
-        let msgLines = [
-          `⚖️ *Nova movimentação no seu processo*`,
-          ``,
-          `Olá, ${firstName}!`,
-        ];
-
-        if (classe || orgao) {
-          msgLines.push(`📌 *${[classe, orgao].filter(Boolean).join(" — ")}*`);
-        }
-        msgLines.push(`📂 Processo: ${processoFormatado}`);
-
-        if (resumo) {
-          msgLines.push(``, `📋 *O que aconteceu:*`, resumo);
-        }
-
-        if (isUrgent) {
-          const fmt = dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-          msgLines.push(``, `🔴 *Prazo: ${fmt}* — entre em contato com o escritório.`);
-        }
-
-        // Inclui link de acompanhamento
-        try {
-          const token = await ensureClientPublicToken(linkedClient!.id);
-          const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
-          if (baseUrl) {
-            msgLines.push(``, `🔗 Acompanhe seus processos: ${baseUrl}/acompanhar/${token}`);
-          }
-        } catch {
-          // sem link se falhar
-        }
-
-        msgLines.push(``, `Qualquer dúvida, é só perguntar aqui!`);
-
-        const msg = msgLines.join("\n");
-        sendWhatsAppMessage(organizationId, conv.phoneNumber, msg, (conv as any).chatLid)
-          .then(() =>
-            prisma.conversation.update({
-              where: { id: conv.id },
-              data: { aiEnabled: false, operatorLastMessageAt: new Date() },
-            })
-          )
-          .catch(() => {});
-      }
+      // Notificação ao cliente via WhatsApp desativada intencionalmente.
+      // O cliente recebe a informação apenas quando pergunta pelo fluxo da IA (opção 3 do menu).
     }
   }
 
