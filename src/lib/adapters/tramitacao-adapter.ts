@@ -94,6 +94,7 @@ function digitsOnly(s: string): string {
 
 function isPlausibleProcessNumber(s: string): boolean {
   const d = digitsOnly(s);
+  // CNJ padrão 20 dígitos; formatos antigos / regional às vezes 15–25
   return d.length === 20 || (d.length >= 15 && d.length <= 25);
 }
 
@@ -111,16 +112,39 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 function pickProcessMasked(o: Record<string, unknown>): string | undefined {
   if (typeof o.numero_processo_com_mascara === "string") return o.numero_processo_com_mascara;
   if (typeof o.numeroProcessoComMascara === "string") return o.numeroProcessoComMascara;
+  if (typeof o.numero_cnj_com_mascara === "string") return o.numero_cnj_com_mascara;
+  return undefined;
+}
+
+function pickStringish(o: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  }
   return undefined;
 }
 
 function pickProcessNumber(o: Record<string, unknown>): string | undefined {
-  if (typeof o.numero_processo === "string") return o.numero_processo;
-  if (typeof o.numeroProcesso === "string") return o.numeroProcesso;
-  if (typeof o.cnj === "string") return o.cnj;
-  if (typeof o.process_number === "string") return o.process_number;
-  if (typeof o.numeroCnj === "string") return o.numeroCnj;
-  return pickProcessMasked(o);
+  const fromPick =
+    pickStringish(o, [
+      "numero_processo",
+      "numeroProcesso",
+      "cnj",
+      "process_number",
+      "numeroCnj",
+      "numero_cnj",
+      "numeroCnjMascara",
+      "numero",
+      "nro_processo",
+      "nro_proc",
+      "codigo_processo",
+      "codigoProcesso",
+      "processo_numero",
+      "judgment_number",
+      "numero_judicial",
+    ]) ?? pickProcessMasked(o);
+  return fromPick;
 }
 
 function pickMovementDate(mv: Record<string, unknown>): string | undefined {
@@ -140,11 +164,20 @@ function snapshotFromObject(o: Record<string, unknown>): Record<string, unknown>
   }
 }
 
+/** Mescla recurso JSON:API: `attributes` sobrescreve o envelope para campos de negócio. */
+function flattenTiResourceItem(item: unknown): Record<string, unknown> | null {
+  const o = asRecord(item);
+  if (!o) return null;
+  const attrs = asRecord(o.attributes);
+  return attrs ? { ...o, ...attrs } : o;
+}
+
 /**
  * A documentação OpenAPI da TI não inclui `processes` em Customer, mas o JSON
- * real pode trazer `processes`, `processos`, ou números só em `last_movements`.
+ * real pode trazer `processes`, `processos`, `included` (JSON:API), ou números em `last_movements`.
  * Unifica tudo em uma lista para gravar em `Process`.
  */
+
 export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
   const top = asRecord(raw);
   if (!top) return [];
@@ -187,9 +220,19 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
     r.procedimentos,
     r.proceedings,
     r.customer_processes,
+    r.legal_processes,
+    r.legalProcesses,
+    r.lawsuits,
+    r.demandas,
+    Array.isArray(r.data) ? r.data : null,
+    Array.isArray(r.included) ? r.included : null,
+    Array.isArray(r.results) ? r.results : null,
+    Array.isArray(r.records) ? r.records : null,
     asRecord(r.customer)?.processes,
     asRecord(r.customer)?.processos,
     asRecord(r.customer)?.procedimentos,
+    asRecord(r.customer)?.legal_processes,
+    asRecord(r.customer)?.lawsuits,
   ].filter(Boolean);
 
   for (const list of arraysToScan) {
@@ -201,7 +244,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
           tiSourceRaw: { origem: "lista_string", valor: item },
         });
       } else {
-        const o = asRecord(item);
+        const o = flattenTiResourceItem(item);
         if (!o) continue;
         push({
           id: typeof o.id === "number" ? o.id : Number(o.id) || 0,
@@ -241,16 +284,12 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
     const movements = r[key];
     if (!Array.isArray(movements)) continue;
     for (const m of movements) {
-      const mv = asRecord(m);
+      const mv = flattenTiResourceItem(m) ?? asRecord(m);
       if (!mv) continue;
       const proc =
         typeof mv.processo === "string"
           ? mv.processo
-          : typeof mv.numero_processo === "string"
-            ? mv.numero_processo
-            : typeof mv.process_number === "string"
-              ? mv.process_number
-              : undefined;
+          : pickProcessNumber(mv);
       if (proc) {
         push({
           id: typeof mv.id === "number" ? mv.id : Number(mv.id) || 0,
@@ -278,11 +317,82 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
   return out;
 }
 
-/** Tentativas best-effort a caminhos não documentados (404 = ignora). */
+function mergeTiJsonIntoAccumulator(raw: unknown, acc: Record<string, unknown>): void {
+  const rec = asRecord(raw);
+  if (!rec) return;
+  Object.assign(acc, rec);
+  const cust = asRecord(rec.customer);
+  if (cust) Object.assign(acc, cust);
+}
+
+/**
+ * Mescla respostas `GET /clientes/:id` (envelope + customer + included) e, se ainda
+ * não houver processos reconhecíveis, tenta variantes com `?include=`.
+ */
+export async function tiFetchCustomerPayloadForProcesses(
+  organizationId: string,
+  tiCustomerId: number
+): Promise<Record<string, unknown>> {
+  const headers = await getHeaders(organizationId);
+  const baseUrl = await getBaseUrl(organizationId);
+  const acc: Record<string, unknown> = {};
+
+  const tryUrl = async (path: string) => {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { headers });
+      if (!res.ok) return;
+      mergeTiJsonIntoAccumulator(await res.json().catch(() => null), acc);
+    } catch {
+      /* ignora */
+    }
+  };
+
+  await tryUrl(`/clientes/${tiCustomerId}`);
+  if (collectProcessesFromTICustomer({ ...acc }).length === 0) {
+    await tryUrl(`/clientes/${tiCustomerId}?include=processos`);
+  }
+  if (collectProcessesFromTICustomer({ ...acc }).length === 0) {
+    await tryUrl(`/clientes/${tiCustomerId}?include=processos,last_movements`);
+  }
+  return acc;
+}
+
+/** Percorre objetos aninhados e tenta cada array como lista de processos (TI varia o shape). */
+function collectProcessesFromNestedArrays(payload: Record<string, unknown>): TIProcess[] {
+  const arrays: unknown[][] = [];
+
+  function walk(node: unknown, depth: number) {
+    if (depth > 12 || node === null || node === undefined) return;
+    if (Array.isArray(node)) {
+      arrays.push(node);
+      for (const el of node) walk(el, depth + 1);
+    } else if (typeof node === "object") {
+      for (const v of Object.values(node as Record<string, unknown>)) walk(v, depth + 1);
+    }
+  }
+
+  walk(payload, 0);
+
+  for (const arr of arrays) {
+    const a = collectProcessesFromTICustomer({ processes: arr });
+    if (a.length > 0) return a;
+    const b = collectProcessesFromTICustomer({ processos: arr });
+    if (b.length > 0) return b;
+  }
+  return [];
+}
+
+/** Tentativas best-effort: dossiê completo + caminhos legados (404 = ignora). */
 export async function tiFetchProcessesForCustomer(
   organizationId: string,
   tiCustomerId: number
 ): Promise<TIProcess[]> {
+  const fat = await tiFetchCustomerPayloadForProcesses(organizationId, tiCustomerId);
+  let out = collectProcessesFromTICustomer(fat);
+  if (out.length > 0) return out;
+  out = collectProcessesFromNestedArrays(fat);
+  if (out.length > 0) return out;
+
   const headers = await getHeaders(organizationId);
   const baseUrl = await getBaseUrl(organizationId);
 

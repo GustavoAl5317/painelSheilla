@@ -24,6 +24,8 @@ interface TICustomerRaw {
   marital_status?: string | null;
   profession?: string | null;
   tags?: { name: string; color: string; id: number }[];
+  /** Itens extras mesclados a partir de `included` na listagem JSON:API */
+  processos?: unknown[];
 }
 
 export interface TISyncResult {
@@ -47,6 +49,93 @@ function buildAddress(ti: TICustomerRaw): string | undefined {
   return parts.length > 0 ? parts.join(" — ") : undefined;
 }
 
+/** Anexa às linhas de cliente os recursos `included` da mesma página (processos por customer_id). */
+function mergeIncludedProcessesFromListRoot(
+  root: Record<string, unknown>,
+  customers: TICustomerRaw[]
+): TICustomerRaw[] {
+  const inc = root.included;
+  const includedList = Array.isArray(inc) ? inc : [];
+
+  return customers.map(c => {
+    const extras: unknown[] = [];
+    const seen = new Set<string>();
+
+    const pushExtra = (row: Record<string, unknown>) => {
+      const n =
+        (typeof row.numero_processo === "string" && row.numero_processo) ||
+        (typeof row.numeroProcesso === "string" && row.numeroProcesso) ||
+        (typeof row.cnj === "string" && row.cnj) ||
+        "";
+      const key = n.replace(/\D/g, "") || JSON.stringify(row).slice(0, 80);
+      if (seen.has(key)) return;
+      seen.add(key);
+      extras.push(row);
+    };
+
+    for (const item of includedList) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const attrs = (o.attributes as Record<string, unknown>) ?? {};
+      const custId = attrs.customer_id ?? attrs.customerId ?? attrs.cliente_id ?? o.customer_id;
+      if (custId !== undefined && custId !== null) {
+        if (Number(custId) !== c.id && String(custId) !== String(c.id)) continue;
+      } else {
+        continue;
+      }
+
+      const typeStr = typeof o.type === "string" ? o.type.toLowerCase() : "";
+      const looksProcess =
+        typeStr.includes("process") ||
+        typeStr.includes("lawsuit") ||
+        typeStr.includes("proced") ||
+        typeStr.includes("legal");
+      const hasNum =
+        typeof attrs.numero_processo === "string" ||
+        typeof attrs.numeroProcesso === "string" ||
+        typeof attrs.numero_cnj === "string" ||
+        typeof attrs.cnj === "string" ||
+        typeof attrs.numero === "string" ||
+        typeof o.numero_processo === "string";
+
+      if (!looksProcess && !hasNum) continue;
+      pushExtra({ ...attrs, ...o });
+    }
+
+    const anyC = c as unknown as Record<string, unknown>;
+    const rels = anyC.relationships as Record<string, unknown> | undefined;
+    if (rels && includedList.length > 0) {
+      const procRel =
+        (rels.processos as Record<string, unknown> | undefined) ??
+        (rels.processes as Record<string, unknown> | undefined) ??
+        (rels.lawsuits as Record<string, unknown> | undefined);
+      const dataBlock = procRel?.data;
+      const refs: Array<{ type?: string; id?: string | number }> = Array.isArray(dataBlock)
+        ? (dataBlock as Array<{ type?: string; id?: string | number }>)
+        : dataBlock && typeof dataBlock === "object"
+          ? [dataBlock as { type?: string; id?: string | number }]
+          : [];
+
+      for (const ref of refs) {
+        if (ref.id == null) continue;
+        for (const item of includedList) {
+          if (!item || typeof item !== "object") continue;
+          const o = item as Record<string, unknown>;
+          if (String(o.id) !== String(ref.id)) continue;
+          if (ref.type && typeof o.type === "string" && o.type !== ref.type) continue;
+          const attrs = (o.attributes as Record<string, unknown>) ?? {};
+          pushExtra({ ...attrs, ...o });
+          break;
+        }
+      }
+    }
+
+    if (extras.length === 0) return c;
+    const prev = Array.isArray(c.processos) ? c.processos : [];
+    return { ...c, processos: [...prev, ...extras] };
+  });
+}
+
 function buildNotes(ti: TICustomerRaw): string | undefined {
   const parts = [
     ti.profession ? `Profissão: ${ti.profession}` : null,
@@ -65,10 +154,11 @@ async function fetchPage(
 ): Promise<{ customers: TICustomerRaw[]; totalPages: number }> {
   const res = await fetch(`${baseUrl}/clientes?page=${page}&per_page=100`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status} na página ${page}`);
-  const data = await res.json();
+  const data = (await res.json()) as Record<string, unknown>;
+  const customers = (data.customers ?? []) as TICustomerRaw[];
   return {
-    customers: data.customers ?? [],
-    totalPages: data.pagination?.pages ?? 1,
+    customers: mergeIncludedProcessesFromListRoot(data, customers),
+    totalPages: (data.pagination as { pages?: number } | undefined)?.pages ?? 1,
   };
 }
 

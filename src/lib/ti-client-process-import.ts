@@ -2,8 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import {
   collectProcessesFromTICustomer,
+  tiFetchCustomerPayloadForProcesses,
   tiFetchProcessesForCustomer,
-  tiGetDossier,
   type TIProcess,
 } from "@/lib/adapters/tramitacao-adapter";
 
@@ -83,11 +83,11 @@ export async function importProcessesFromTramitacaoForPainelClient(
 
   if (list.length === 0) {
     try {
-      const dossier = await tiGetDossier(organizationId, base.id);
-      merged = { ...merged, ...(dossier as object) };
+      const fat = await tiFetchCustomerPayloadForProcesses(organizationId, base.id);
+      merged = { ...merged, ...fat };
       list = collectProcessesFromTICustomer(merged);
     } catch {
-      /* dossier indisponível */
+      /* dossiê / include indisponível */
     }
   }
 
