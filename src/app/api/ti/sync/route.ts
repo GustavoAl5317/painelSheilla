@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
     created: result.created,
     updated: result.updated,
     skipped: result.skipped,
+    processesLinked: result.processesLinked,
+    tramitacaoProcessesImported: result.tramitacaoProcessesImported,
     errors: result.errors,
   });
 }

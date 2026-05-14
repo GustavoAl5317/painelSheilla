@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
         updated: 0,
         skipped: 0,
         processesLinked: 0,
+        tramitacaoProcessesImported: 0,
         errors: [(e as Error).message],
       };
     }

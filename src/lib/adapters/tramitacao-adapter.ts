@@ -106,14 +106,41 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
+function pickProcessMasked(o: Record<string, unknown>): string | undefined {
+  if (typeof o.numero_processo_com_mascara === "string") return o.numero_processo_com_mascara;
+  if (typeof o.numeroProcessoComMascara === "string") return o.numeroProcessoComMascara;
+  return undefined;
+}
+
+function pickProcessNumber(o: Record<string, unknown>): string | undefined {
+  if (typeof o.numero_processo === "string") return o.numero_processo;
+  if (typeof o.numeroProcesso === "string") return o.numeroProcesso;
+  if (typeof o.cnj === "string") return o.cnj;
+  if (typeof o.process_number === "string") return o.process_number;
+  if (typeof o.numeroCnj === "string") return o.numeroCnj;
+  return pickProcessMasked(o);
+}
+
+function pickMovementDate(mv: Record<string, unknown>): string | undefined {
+  if (typeof mv.data === "string") return mv.data;
+  if (typeof mv.data_movimentacao === "string") return mv.data_movimentacao;
+  if (typeof mv.dataMovimentacao === "string") return mv.dataMovimentacao;
+  if (typeof mv.created_at === "string") return mv.created_at;
+  if (typeof mv.createdAt === "string") return mv.createdAt;
+  return undefined;
+}
+
 /**
  * A documentação OpenAPI da TI não inclui `processes` em Customer, mas o JSON
  * real pode trazer `processes`, `processos`, ou números só em `last_movements`.
  * Unifica tudo em uma lista para gravar em `Process`.
  */
 export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
-  const r = asRecord(raw);
-  if (!r) return [];
+  const top = asRecord(raw);
+  if (!top) return [];
+
+  const dossier = asRecord(top.dossier);
+  const r: Record<string, unknown> = dossier ? { ...dossier, ...top } : top;
 
   const seen = new Set<string>();
   const out: TIProcess[] = [];
@@ -145,9 +172,12 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
   const arraysToScan: unknown[] = [
     r.processes,
     r.processos,
+    r.procedimentos,
+    r.proceedings,
     r.customer_processes,
     asRecord(r.customer)?.processes,
     asRecord(r.customer)?.processos,
+    asRecord(r.customer)?.procedimentos,
   ].filter(Boolean);
 
   for (const list of arraysToScan) {
@@ -160,28 +190,37 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
         if (!o) continue;
         push({
           id: typeof o.id === "number" ? o.id : Number(o.id) || 0,
-          numero_processo: typeof o.numero_processo === "string" ? o.numero_processo : undefined,
-          numero_processo_com_mascara:
-            typeof o.numero_processo_com_mascara === "string" ? o.numero_processo_com_mascara : undefined,
+          numero_processo: pickProcessNumber(o),
+          numero_processo_com_mascara: pickProcessMasked(o),
           tribunal:
             typeof o.tribunal === "string"
               ? o.tribunal
               : typeof o.siglaTribunal === "string"
                 ? o.siglaTribunal
-                : undefined,
+                : typeof o.sigla_tribunal === "string"
+                  ? o.sigla_tribunal
+                  : undefined,
           status: typeof o.status === "string" ? o.status : undefined,
           ultima_movimentacao:
             typeof o.ultima_movimentacao === "string"
               ? o.ultima_movimentacao
               : typeof o.updated_at === "string"
                 ? o.updated_at
-                : undefined,
+                : typeof o.updatedAt === "string"
+                  ? o.updatedAt
+                  : undefined,
         });
       }
     }
   }
 
-  const movementKeys = ["last_movements", "ultimas_movimentacoes", "lastMovements"] as const;
+  const movementKeys = [
+    "last_movements",
+    "ultimas_movimentacoes",
+    "lastMovements",
+    "movimentacoes",
+    "movimentos",
+  ] as const;
   for (const key of movementKeys) {
     const movements = r[key];
     if (!Array.isArray(movements)) continue;
@@ -200,7 +239,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
         push({
           id: typeof mv.id === "number" ? mv.id : Number(mv.id) || 0,
           numero_processo: proc,
-          ultima_movimentacao: typeof mv.data === "string" ? mv.data : undefined,
+          ultima_movimentacao: pickMovementDate(mv),
         });
       }
       const texto = typeof mv.texto === "string" ? mv.texto : "";
@@ -208,7 +247,7 @@ export function collectProcessesFromTICustomer(raw: unknown): TIProcess[] {
         push({
           id: typeof mv.id === "number" ? mv.id : 0,
           numero_processo: found,
-          ultima_movimentacao: typeof mv.data === "string" ? mv.data : undefined,
+          ultima_movimentacao: pickMovementDate(mv),
         });
       }
     }

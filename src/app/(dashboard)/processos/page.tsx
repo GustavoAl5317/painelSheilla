@@ -34,7 +34,7 @@ export default async function ProcessosPage() {
 
   const [processes, clientList] = await Promise.all([
     prisma.process.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId: orgId, clientId: { not: null } },
       include: {
         client: { select: { id: true, name: true, phone: true, email: true } },
         caseCards: {
@@ -80,7 +80,7 @@ export default async function ProcessosPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{processes.length} processo{processes.length !== 1 ? "s" : ""}</p>
-                  <p className="text-xs text-gray-400">Processos jurídicos</p>
+                  <p className="text-xs text-gray-400">Processos jurídicos com cliente vinculado</p>
                 </div>
               </div>
               {/* Mini stats de status */}

@@ -2,15 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import {
-  tiCreateCustomer,
-  tiSearchByCPF,
-  tiSearchByPhone,
-  tiUpsertNote,
-  tiGetDossier,
-  collectProcessesFromTICustomer,
-  tiFetchProcessesForCustomer,
-} from "@/lib/adapters/tramitacao-adapter";
+import { tiCreateCustomer, tiSearchByCPF, tiSearchByPhone, tiUpsertNote, tiGetDossier } from "@/lib/adapters/tramitacao-adapter";
+import { importProcessesFromTramitacaoForPainelClient } from "@/lib/ti-client-process-import";
 import { trelloSyncClientCard } from "@/lib/adapters/trello-adapter";
 import { buildTramitacaoTriageNoteContent } from "@/lib/tramitacao-client-note";
 import { generateRandomCpf } from "@/lib/utils";
@@ -80,28 +73,9 @@ export async function POST(
       }
 
       if (tiCustomer) {
-        let tiProcesses = collectProcessesFromTICustomer(tiCustomer);
-
-        if (tiProcesses.length === 0) {
-          try {
-            const dossier = await tiGetDossier(orgId, tiCustomer.id);
-            tiCustomer = { ...tiCustomer, ...dossier };
-            tiProcesses = collectProcessesFromTICustomer(tiCustomer);
-          } catch {
-            /* mantém tiCustomer anterior */
-          }
-        }
-
-        if (tiProcesses.length === 0) {
-          try {
-            const extra = await tiFetchProcessesForCustomer(orgId, tiCustomer.id);
-            if (extra.length > 0) tiProcesses = extra;
-          } catch {
-            /* endpoints opcionais indisponíveis */
-          }
-        }
-
-        tiProcessesCount = tiProcesses.length;
+        const tiProcRes = await importProcessesFromTramitacaoForPainelClient(orgId, client.id, tiCustomer);
+        processesImported = tiProcRes.imported;
+        tiProcessesCount = tiProcRes.totalFromTi;
 
         const noteContent = await buildTramitacaoTriageNoteContent(
           {
@@ -116,42 +90,6 @@ export async function POST(
         );
 
         await tiUpsertNote(orgId, tiCustomer.id, noteContent);
-
-        // Importação simplificada de processos
-        for (const tiProc of tiProcesses) {
-          const rawNumber = tiProc.numero_processo_com_mascara ?? tiProc.numero_processo;
-          const cleanNumber = rawNumber.replace(/\s/g, "");
-          if (!cleanNumber) continue;
-
-          const digits = cleanNumber.replace(/\D/g, "");
-          const existing = await prisma.process.findFirst({
-            where: {
-              organizationId: orgId,
-              clientId: client.id,
-              OR: [{ number: cleanNumber }, ...(digits.length >= 15 ? [{ number: { contains: digits.slice(0, 20) } }] : [])],
-            },
-          });
-
-          if (!existing) {
-            let lastMovementAt: Date | undefined;
-            if (tiProc.ultima_movimentacao) {
-              const d = new Date(tiProc.ultima_movimentacao);
-              if (!Number.isNaN(d.getTime())) lastMovementAt = d;
-            }
-            await prisma.process.create({
-              data: {
-                organizationId: orgId,
-                clientId: client.id,
-                number: cleanNumber,
-                court: tiProc.tribunal ?? undefined,
-                lastMovement: tiProc.ultima_movimentacao ?? undefined,
-                lastMovementAt,
-                status: "ACTIVE",
-              },
-            });
-            processesImported++;
-          }
-        }
 
         await prisma.client.update({
           where: { id: client.id },

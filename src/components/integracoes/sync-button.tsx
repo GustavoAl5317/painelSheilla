@@ -10,6 +10,7 @@ interface SyncResult {
   updated?: number;
   skipped?: number;
   processesLinked?: number;
+  tramitacaoProcessesImported?: number;
   errors?: string[];
 }
 
@@ -49,7 +50,18 @@ export function SyncButton({ label, endpoint, organizationId, resultFormat = "sy
 
   const successText = result
     ? resultFormat === "created-updated-skipped"
-      ? `${result.created ?? 0} criado(s), ${result.updated ?? 0} atualizado(s), ${result.skipped ?? 0} sem CPF ignorado(s)${result.processesLinked ? `, ${result.processesLinked} processo(s) vinculado(s) via DJEN` : ""}`
+      ? (() => {
+          const parts = [
+            `${result.created ?? 0} criado(s)`,
+            `${result.updated ?? 0} atualizado(s)`,
+            `${result.skipped ?? 0} sem CPF ignorado(s)`,
+          ];
+          const djen = result.processesLinked ?? 0;
+          const tiApi = result.tramitacaoProcessesImported ?? 0;
+          if (djen > 0) parts.push(`${djen} processo(s) via DJEN`);
+          if (tiApi > 0) parts.push(`${tiApi} processo(s) via Tramitação`);
+          return parts.join(", ");
+        })()
       : `${result.synced ?? 0} item(ns) sincronizado(s)${result.errors?.length ? `, ${result.errors.length} aviso(s)` : ""}`
     : "";
 

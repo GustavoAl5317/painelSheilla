@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { resolveCredential } from "@/lib/credentials";
 import { fetchComunicacoesOAB, mapItemToPub } from "@/lib/djen-sync";
+import { importProcessesFromTramitacaoForPainelClient } from "@/lib/ti-client-process-import";
 
 const DEFAULT_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
 
@@ -31,6 +32,8 @@ export interface TISyncResult {
   updated: number;
   skipped: number;
   processesLinked: number;
+  /** Processos importados do dossiê/API da Tramitação por cliente */
+  tramitacaoProcessesImported: number;
   errors: string[];
 }
 
@@ -78,7 +81,14 @@ async function fetchPage(
 }
 
 export async function syncTIClients(organizationId: string): Promise<TISyncResult> {
-  const result: TISyncResult = { created: 0, updated: 0, skipped: 0, processesLinked: 0, errors: [] };
+  const result: TISyncResult = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    processesLinked: 0,
+    tramitacaoProcessesImported: 0,
+    errors: [],
+  };
 
   const apiKey = await resolveCredential(organizationId, "TRAMITACAO_API_KEY");
   if (!apiKey) {
@@ -267,6 +277,10 @@ export async function syncTIClients(organizationId: string): Promise<TISyncResul
             });
             result.processesLinked++;
           }
+
+          await new Promise(r => setTimeout(r, 60));
+          const tiProcRes = await importProcessesFromTramitacaoForPainelClient(organizationId, clientId, ti);
+          result.tramitacaoProcessesImported += tiProcRes.imported;
         } catch (err) {
           result.errors.push(`[${ti.name}] ${(err as Error).message}`);
         }
