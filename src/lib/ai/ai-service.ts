@@ -144,8 +144,11 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
 
-REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "3 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
+REGRA PARA OPÇÃO ANDAMENTO DE PROCESSO (opção 3):
+- Se o cliente escolher a opção "3 - Sou cliente do escritório e gostaria de saber o andamento do meu processo", responda APENAS com a exata frase: "Claro! Vou acionar a equipe para que ela verifique o andamento do seu processo e já te envie o link de acompanhamento aqui no WhatsApp. Um momento!" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+
+REGRA PARA OPÇÃO OUTROS ASSUNTOS (opção 4):
+- Se o cliente escolher a opção "4 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
