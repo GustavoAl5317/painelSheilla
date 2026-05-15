@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
 import { ensureClientCaseCard } from "@/lib/case-card";
 import { ensureClientPublicToken } from "@/lib/client-public-token";
+import { resolveCredential } from "@/lib/credentials";
+import { interpretLegalMovement } from "@/lib/ai/ai-service";
 import type { TIPublication } from "@/lib/adapters/tramitacao-adapter";
 
 // Webhook recebido da Tramitação Inteligente
@@ -44,7 +46,7 @@ function toTitleCase(str: string): string {
   return str.toLowerCase().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-/** Limpa HTML e normaliza espaços, sem truncar — para salvar o texto completo no card. */
+/** Limpa HTML e normaliza espaços, sem truncar. */
 function limparTexto(texto: string | undefined | null): string {
   if (!texto) return "";
   return stripHtml(texto)
@@ -69,13 +71,21 @@ async function processWebhook(organizationId: string, payload: any) {
   if (payload.event_type === "publications.created") {
     const publications: TIPublication[] = payload.payload?.publications ?? [];
 
+    // Resolve credenciais de IA uma vez por batch
+    const [openaiKey, anthropicKey] = await Promise.all([
+      resolveCredential(organizationId, "OPENAI_API_KEY"),
+      resolveCredential(organizationId, "ANTHROPIC_API_KEY"),
+    ]);
+    const aiProvider = anthropicKey ? "anthropic" : openaiKey ? "openai" : null;
+    const aiKey = anthropicKey ?? openaiKey ?? null;
+
     for (const pub of publications) {
       const processoFormatado = pub.numero_processo_com_mascara ?? pub.numero_processo;
-      const deadlineTitle = `Intimação — Proc. ${processoFormatado}`;
 
-      // Idempotência
+      // Idempotência por pub.uuid — cada publicação da TI tem UUID único
+      const idempotencyKey = `TI/${pub.uuid ?? pub.id} — Proc. ${processoFormatado}`;
       const exists = await prisma.deadline.findFirst({
-        where: { organizationId, title: deadlineTitle },
+        where: { organizationId, title: idempotencyKey },
       });
       if (exists) continue;
 
@@ -115,7 +125,7 @@ async function processWebhook(organizationId: string, payload: any) {
             organizationId,
             clientId: linkedClient?.id ?? undefined,
             number: processoFormatado,
-            title: pub.nomeClasse ?? `Processo TI — ${processoFormatado}`,
+            title: pub.nomeClasse ? toTitleCase(pub.nomeClasse) : `Processo TI — ${processoFormatado}`,
             court: pub.siglaTribunal ?? pub.nomeOrgao ?? undefined,
             observations: linkedClient
               ? "Cadastrado automaticamente via Tramitação Inteligente."
@@ -127,6 +137,20 @@ async function processWebhook(organizationId: string, payload: any) {
           where: { id: linkedProcess.id },
           data: { clientId: linkedClient.id },
         });
+      }
+
+      // ── Interpretação por IA ─────────────────────────────────────────────
+      const textoCompleto = limparTexto(pub.texto);
+      let interpretation: { tipoMovimentacao: string; resumo: string; mensagemCliente: string; diasPrazo?: number } = {
+        tipoMovimentacao: toTitleCase(pub.nomeClasse ?? "Publicação Judicial"),
+        resumo: textoCompleto.slice(0, 300),
+        mensagemCliente: `Nova movimentação no processo ${processoFormatado}.`,
+      };
+
+      if (aiKey && aiProvider && textoCompleto) {
+        try {
+          interpretation = await interpretLegalMovement(textoCompleto, aiKey, aiProvider);
+        } catch { /* ignora falha de IA — usa fallback */ }
       }
 
       // Garante ClientCaseCard, CrmCard e registra entrada na linha do tempo
@@ -169,21 +193,20 @@ async function processWebhook(organizationId: string, payload: any) {
             }
           }
 
-          // Registra entrada na linha do tempo (visível ao cliente na página de acompanhamento)
-          // Salva o texto completo (sem truncar) para leitura integral no card
-          const textoCompleto = limparTexto(pub.texto);
-          const entryLines = [
-            pub.nomeClasse ? toTitleCase(pub.nomeClasse) : null,
-            pub.nomeOrgao ?? pub.siglaTribunal ?? null,
-            textoCompleto || null,
+          // Entrada na timeline:
+          // Cabeçalho com interpretação da IA + texto integral da publicação abaixo
+          const entryContent = [
+            `${interpretation.tipoMovimentacao} — ${pub.nomeOrgao ?? pub.siglaTribunal ?? ""}`.trimEnd(),
+            interpretation.resumo,
+            textoCompleto ? `\nTexto da publicação:\n${textoCompleto}` : null,
           ].filter(Boolean).join("\n");
 
-          if (entryLines) {
+          if (entryContent) {
             await prisma.caseCardEntry.create({
               data: {
                 cardId: caseCard.id,
                 source: "TRAMITACAO_INTELIGENTE",
-                content: entryLines,
+                content: entryContent,
                 shareWithClient: true,
               },
             });
@@ -193,6 +216,15 @@ async function processWebhook(organizationId: string, payload: any) {
         }
       }
 
+      // Atualiza última movimentação do processo
+      await prisma.process.update({
+        where: { id: linkedProcess.id },
+        data: {
+          lastMovement: `[${interpretation.tipoMovimentacao}] ${interpretation.resumo}`,
+          lastMovementAt: new Date(),
+        },
+      }).catch(() => {});
+
       // Calcula prazo
       const dueDate = pub.inicio_do_prazo_date
         ? new Date(pub.inicio_do_prazo_date)
@@ -200,14 +232,18 @@ async function processWebhook(organizationId: string, payload: any) {
           ? new Date(pub.disponibilizacao_date)
           : new Date();
 
+      if (interpretation.diasPrazo) {
+        dueDate.setDate(dueDate.getDate() + interpretation.diasPrazo);
+      }
+
       await prisma.deadline.create({
         data: {
           organizationId,
-          title: deadlineTitle,
+          title: idempotencyKey,
           description: [
-            pub.nomeOrgao,
-            pub.siglaTribunal,
-            pub.texto?.slice(0, 500),
+            `Tipo: ${interpretation.tipoMovimentacao}`,
+            pub.nomeOrgao ? `Órgão: ${pub.nomeOrgao}` : null,
+            `Resumo: ${interpretation.resumo}`,
           ].filter(Boolean).join("\n"),
           dueDate,
           processId: linkedProcess.id,
@@ -222,8 +258,8 @@ async function processWebhook(organizationId: string, payload: any) {
         data: {
           organizationId,
           type: "PROCESS_UPDATE",
-          title: `TI: Nova publicação${isUrgent ? " 🔴 URGENTE" : ""}`,
-          message: `Processo ${processoFormatado} — nova movimentação identificada.`,
+          title: `TI: ${interpretation.tipoMovimentacao}${isUrgent ? " 🔴 URGENTE" : ""}`,
+          message: `Processo ${processoFormatado} — ${interpretation.resumo.slice(0, 120)}`,
           metadata: {
             source: "TRAMITACAO_INTELIGENTE",
             link: pub.link_tramitacao ?? pub.link,
@@ -232,13 +268,12 @@ async function processWebhook(organizationId: string, payload: any) {
         },
       });
 
-      // Notifica cliente via WhatsApp com resumo + link de acompanhamento
+      // Notifica cliente via WhatsApp
       const conv = linkedClient?.conversations?.[0];
       if (conv) {
         const firstName = linkedClient!.name.split(" ")[0];
-        const resumo = resumirPublicacao(pub.texto);
         const orgao = pub.siglaTribunal ?? pub.nomeOrgao ?? "";
-        const classe = pub.nomeClasse ?? "";
+        const classe = toTitleCase(pub.nomeClasse ?? "");
 
         let msgLines = [
           `⚖️ *Nova movimentação no seu processo*`,
@@ -250,26 +285,20 @@ async function processWebhook(organizationId: string, payload: any) {
           msgLines.push(`📌 *${[classe, orgao].filter(Boolean).join(" — ")}*`);
         }
         msgLines.push(`📂 Processo: ${processoFormatado}`);
-
-        if (resumo) {
-          msgLines.push(``, `📋 *O que aconteceu:*`, resumo);
-        }
+        msgLines.push(``, `📋 *O que aconteceu:*`, interpretation.mensagemCliente);
 
         if (isUrgent) {
           const fmt = dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
           msgLines.push(``, `🔴 *Prazo: ${fmt}* — entre em contato com o escritório.`);
         }
 
-        // Inclui link de acompanhamento
         try {
           const token = await ensureClientPublicToken(linkedClient!.id);
           const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
           if (baseUrl) {
             msgLines.push(``, `🔗 Acompanhe seus processos: ${baseUrl}/acompanhar/${token}`);
           }
-        } catch {
-          // sem link se falhar
-        }
+        } catch { /* sem link se falhar */ }
 
         msgLines.push(``, `Qualquer dúvida, é só perguntar aqui!`);
 
