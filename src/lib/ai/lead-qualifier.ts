@@ -128,7 +128,7 @@ export async function processIncomingMessage(
   const config = await resolveAIConfig(organizationId, conversation.phoneNumber);
   if (!config) return null;
 
-  // Mesma regra do webhook: tenta vincular Cliente existente (cadastro) pelo número do WhatsApp
+  // Tenta vincular Cliente pelo número do WhatsApp
   if (!conversation.clientId) {
     const clientId = await findClientIdByOrgPhone(organizationId, conversation.phoneNumber);
     if (clientId) {
@@ -138,6 +138,27 @@ export async function processIncomingMessage(
         include: convInclude,
       });
       if (!conversation) return null;
+    }
+  }
+
+  // Tenta vincular pelo CPF informado na própria mensagem, antes de chamar a IA,
+  // para que o clientContext já esteja disponível neste turno
+  if (!conversation.clientId) {
+    const cpfMatch = userMessage.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+    if (cpfMatch) {
+      const cpfClean = cpfMatch[0].replace(/\D/g, "");
+      const clientByCpf = await prisma.client.findFirst({
+        where: { organizationId, cpf: cpfClean },
+        select: { id: true },
+      });
+      if (clientByCpf) {
+        await prisma.conversation.update({ where: { id: conversationId }, data: { clientId: clientByCpf.id } });
+        conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: convInclude,
+        });
+        if (!conversation) return null;
+      }
     }
   }
 
