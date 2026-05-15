@@ -250,12 +250,12 @@ export async function processIncomingMessage(
     } else if (lead?.name && !nameLooksPhone) {
       firstName = lead.name.trim().split(" ")[0];
     }
-    const greeting = firstName ? `Olá, ${firstName}!` : "Olá!";
+    const greeting = firstName ? `Olá, ${firstName}! Tudo bem?` : "Olá tudo bem?";
     const menuMessage =
-      `${greeting} Sobre qual assunto posso ajudá-lo hoje?\n\n` +
+      `${greeting} Para que eu possa lhe direcionar, me diga exatamente em que posso lhe ajudar hoje:\n\n` +
       `1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n` +
       `2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n` +
-      `3. Atualização do meu processo\n` +
+      `3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n` +
       `4. Outros assuntos`;
     return { content: menuMessage, shouldTransferToHuman: false, triageComplete: false, qualifiedData: { score: 0 } };
   }
