@@ -273,6 +273,34 @@ export async function processIncomingMessage(
   const nameLooksPhone =
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
+  // ── Menu programático para contato conhecido ─────────────────────────────
+  // Dispara quando é cliente cadastrado (clientId) OU lead com nome real já
+  // conhecido (!nameLooksPhone). Usa a presença do texto "1. Previdenciário"
+  // no histórico para saber se o menu já foi exibido — assim funciona mesmo
+  // quando a IA já respondeu antes (sem o menu correto).
+  const menuAlreadyShown = chronological.some(
+    m => m.direction === "OUTBOUND" && m.isAI && m.content.includes("1. Previdenci")
+  );
+  const isKnownContact = !!(conversation.clientId && clientContext) || !nameLooksPhone;
+
+  if (!menuAlreadyShown && !operatorIntervened && isKnownContact) {
+    let firstName = "";
+    if (clientContext) {
+      const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
+      firstName = nameMatch?.[1]?.trim().split(" ")[0] ?? "";
+    } else if (lead?.name && !nameLooksPhone) {
+      firstName = lead.name.trim().split(" ")[0];
+    }
+    const greeting = firstName ? `Olá ${firstName} tudo bem?` : "Olá tudo bem?";
+    const menuMessage =
+      `${greeting} Para que eu possa lhe direcionar, me diga exatamente em que posso lhe ajudar hoje:\n\n` +
+      `1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n` +
+      `2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n` +
+      `3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n` +
+      `4. Outros assuntos`;
+    return { content: menuMessage, shouldTransferToHuman: false, triageComplete: false, qualifiedData: { score: 0 } };
+  }
+
   const textSuggestsOngoing = (t: string) =>
     /dra\.?|doutor|doutora|dra\s|doutor\s|sra\.?|sr\.?|oab|quando\s+o|valor|pagamento|processo|honor|já\s|retorno|acordo|escritór|escrit|advogad|parcela|me\s+lig|falar com/i.test(
       t
