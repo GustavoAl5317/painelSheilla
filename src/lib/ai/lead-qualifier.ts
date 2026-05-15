@@ -128,7 +128,7 @@ export async function processIncomingMessage(
   const config = await resolveAIConfig(organizationId, conversation.phoneNumber);
   if (!config) return null;
 
-  // Mesma regra do webhook: tenta vincular Cliente existente (cadastro) pelo número do WhatsApp
+  // Tenta vincular Cliente existente pelo número do WhatsApp
   if (!conversation.clientId) {
     const clientId = await findClientIdByOrgPhone(organizationId, conversation.phoneNumber);
     if (clientId) {
@@ -138,6 +138,28 @@ export async function processIncomingMessage(
         include: convInclude,
       });
       if (!conversation) return null;
+    }
+  }
+
+  // Tenta vincular pelo CPF enviado diretamente na mensagem atual — faz isso
+  // ANTES de construir o clientContext para que a IA já tenha os dados do cliente
+  // ao responder a mensagem que contém o CPF (sem precisar de outra mensagem).
+  if (!conversation.clientId) {
+    const cpfRaw = userMessage.match(/\b\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}\b/)?.[0];
+    if (cpfRaw) {
+      const cpfClean = cpfRaw.replace(/\D/g, "");
+      const clientByCpf = await prisma.client.findFirst({
+        where: { organizationId, cpf: cpfClean },
+        select: { id: true },
+      });
+      if (clientByCpf) {
+        await prisma.conversation.update({ where: { id: conversationId }, data: { clientId: clientByCpf.id } });
+        conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: convInclude,
+        });
+        if (!conversation) return null;
+      }
     }
   }
 
@@ -236,16 +258,13 @@ export async function processIncomingMessage(
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
   // ── Menu programático para contato conhecido ─────────────────────────────
-  // Dispara quando é cliente cadastrado (clientId) OU lead com nome real já
-  // conhecido (!nameLooksPhone). Usa a presença do texto "1. Previdenciário"
-  // no histórico para saber se o menu já foi exibido — assim funciona mesmo
-  // quando a IA já respondeu antes (sem o menu correto).
-  const menuAlreadyShown = chronological.some(
-    m => m.direction === "OUTBOUND" && m.isAI && m.content.includes("1. Previdenci")
-  );
+  // Dispara na primeira resposta da IA (hadAiReply = false) para clientes
+  // cadastrados (clientId + clientContext) ou leads com nome real conhecido.
+  // Com o phone-linking corrigido, clientContext estará disponível desde a
+  // primeira mensagem para clientes cadastrados.
   const isKnownContact = !!(conversation.clientId && clientContext) || !nameLooksPhone;
 
-  if (!menuAlreadyShown && !operatorIntervened && isKnownContact) {
+  if (!hadAiReply && !operatorIntervened && isKnownContact) {
     let firstName = "";
     if (clientContext) {
       const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
