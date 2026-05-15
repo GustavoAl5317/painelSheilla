@@ -39,7 +39,7 @@ function userMessageSuggestsOngoingOrReturn(t: string): boolean {
   );
 }
 
-/** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
+/** Respostas típicas quando o modelo "não entende" e pede dados em vez de encaminhar. */
 function replySoundsLikeContextConfusion(assistantReply: string): boolean {
   const t = assistantReply.toLowerCase();
   return (
@@ -54,10 +54,12 @@ function replySoundsLikeContextConfusion(assistantReply: string): boolean {
 
 export function shouldUseUnclearContextFallbackReply(
   leadMode: LeadChatMode,
-  _clientContext: string | undefined,
+  clientContext: string | undefined,
   userMessage: string,
   assistantReply: string
 ): boolean {
+  // Se temos dados do cliente cadastrado, a IA deve responder com base neles — nunca sobrescrever
+  if (clientContext) return false;
   if (!replySoundsLikeContextConfusion(assistantReply)) return false;
   if (leadMode === "established") return true;
   if (userMessageSuggestsOngoingOrReturn(userMessage)) return true;
@@ -68,11 +70,24 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean }
+  options?: {
+    clientContext?: string;
+    leadMode?: LeadChatMode;
+    hasMedia?: boolean;
+    operatorIntervened?: boolean;
+    existingClientIntent?: boolean;
+  }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false } = options ?? {};
+  const {
+    clientContext,
+    leadMode = "cold",
+    hasMedia = false,
+    operatorIntervened = false,
+    existingClientIntent = false,
+  } = options ?? {};
+
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened, existingClientIntent) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -110,20 +125,34 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
-  const handoffNoContextRule = `
+function buildSystemPrompt(
+  base: string,
+  clientContext: string | undefined,
+  leadMode: LeadChatMode,
+  hasMedia = false,
+  operatorIntervened = false,
+  existingClientIntent = false,
+): string {
+  // ── Seção de contexto/dados — muda dependendo do estado do cliente ──────────
+  let clientSection: string;
+
+  if (clientContext) {
+    // Cliente identificado e vinculado — temos os dados do processo
+    clientSection = `\n\n--- DADOS DO CLIENTE ---\n${clientContext}`;
+  } else if (existingClientIntent) {
+    // A pessoa claramente é cliente (escolheu opção 3 ou perguntou sobre "meu processo"),
+    // mas ainda não foi identificada no sistema
+    clientSection = `\n\n--- IDENTIFICAÇÃO PENDENTE ---\nEsta pessoa é cliente do escritório mas ainda não foi identificada no sistema.`;
+  } else {
+    // Sem vínculo e sem indicação de ser cliente — pode ser novo lead
+    const handoffNoContextRule = `
 REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 - O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
 - Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
+    clientSection = `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}`;
+  }
 
-  const clientSection = clientContext
-    ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.${handoffNoContextRule}`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}`;
-
-  const mediaInstruction = hasMedia
-    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
-    : "";
-
+  // ── Regras universais ────────────────────────────────────────────────────────
   const antiHallucination = `
 REGRA DE RITMO — ABSOLUTA:
 - Envie APENAS UMA mensagem curta por vez. Faça UMA pergunta, aguarde a resposta, depois avance.
@@ -145,21 +174,38 @@ REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
 
 REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "3 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
+- Se o cliente escolher a opção "4 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
 
-  const instructions = clientContext
-    ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
+  // ── Instruções específicas por modo ─────────────────────────────────────────
+  let instructions: string;
+
+  if (clientContext) {
+    instructions = `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado — use os dados acima):
 - Este é um cliente existente do escritório. Trate-o com cordialidade e pelo nome.
-- Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
+- Quando o cliente perguntar sobre o andamento do processo, USE as informações da seção "DADOS DO CLIENTE" acima para responder de forma clara e sem jargão jurídico.
+- Se constar "Nenhum processo ativo cadastrado", informe gentilmente que não há processos ativos no sistema e que a equipe poderá verificar mais detalhes.
+- Se houver "Informações do escritório" na seção acima, use-as para responder perguntas sobre atualizações do caso.
+- Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, diga: "Não tenho essa informação. A equipe do escritório poderá verificar isso para você."
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
-- Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
-    : leadMode === "established"
-      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
+- Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`;
+
+  } else if (existingClientIntent) {
+    instructions = `\nINSTRUÇÕES OBRIGATÓRIAS (cliente existente — identificação pelo CPF):
+- Esta pessoa é cliente do escritório mas ainda não foi identificada no sistema.
+- Se ainda não pediu o CPF, peça APENAS isso: "Por favor, informe seu CPF para que eu possa verificar o andamento do seu processo."
+- NÃO faça triagem de novo lead. NÃO peça nome, e-mail, área jurídica ou situação do caso.
+- NÃO pergunte se é novo caso ou atendimento anterior.
+- Quando o CPF for informado, confirme o recebimento com uma frase curta e aguarde — o sistema verificará os dados.
+- Se o cliente quiser falar com a equipe, inclua [TRANSFERIR_PARA_HUMANO] no final.
+- Responda em português brasileiro, de forma empática e profissional. Máximo 2 frases.`;
+
+  } else if (leadMode === "established") {
+    instructions = `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento — triagem de novo lead):
 - Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação).
 - Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas.
 - Se ainda não coletou nome, e-mail, área ou situação, colete agora — mesmo que a conversa seja antiga.
@@ -168,22 +214,29 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
 - Ao concluir todas as etapas, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
-- Responda em português brasileiro, empático e profissional.`
-      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
+- Responda em português brasileiro, empático e profissional.`;
+
+  } else {
+    instructions = `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
 - Siga o FLUXO definido acima, uma etapa por vez. Nunca pule etapas nem junte perguntas.
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça brevemente e redirecione com firmeza e cordialidade para a próxima etapa da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça sem dizer que não pode coletar.
 - NUNCA pergunte se o cliente já tem advogado.
 - NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda sempre em português brasileiro, de forma empática e profissional.`;
+  }
+
+  const mediaInstruction = hasMedia
+    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
+    : "";
 
   const operatorNote = operatorIntervened
     ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
