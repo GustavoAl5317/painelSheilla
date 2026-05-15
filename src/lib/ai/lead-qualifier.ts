@@ -141,6 +141,32 @@ export async function processIncomingMessage(
     }
   }
 
+  // ── Vinculação antecipada por CPF na mensagem atual ────────────────────────
+  // Se a conversa ainda não está vinculada a um cliente mas o usuário informou
+  // um CPF nesta mensagem, faz o lookup antes de chamar a IA para que ela já
+  // receba o contexto correto e possa responder com os dados do processo.
+  if (!conversation.clientId) {
+    const cpfInMessage = userMessage.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+    if (cpfInMessage) {
+      const cpfClean = cpfInMessage[0].replace(/\D/g, "");
+      const clientByCPF = await prisma.client.findFirst({
+        where: { organizationId, cpf: cpfClean },
+        select: { id: true },
+      });
+      if (clientByCPF) {
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { clientId: clientByCPF.id },
+        });
+        conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: convInclude,
+        });
+        if (!conversation) return null;
+      }
+    }
+  }
+
   // ── Contexto do cliente (se conversa já vinculada a um cliente) ───────────
   let clientContext: string | undefined;
   if (conversation.clientId) {
@@ -162,32 +188,44 @@ export async function processIncomingMessage(
     });
 
     if (client) {
-      const processLines = client.processes.map(p => {
+      const processLines = client.processes.map((p: any) => {
         const movimento = p.lastMovement
           ? `\n   Última movimentação (${p.lastMovementAt?.toLocaleDateString("pt-BR") ?? "?"}): ${p.lastMovement}`
           : "";
+        const audiencia = p.nextHearing
+          ? `\n   Próxima audiência: ${new Date(p.nextHearing).toLocaleDateString("pt-BR")}`
+          : "";
+        const prazos = p.deadlines?.length
+          ? `\n   Prazos pendentes: ${p.deadlines.map((d: any) => `${d.description ?? d.type} até ${new Date(d.dueDate).toLocaleDateString("pt-BR")}`).join("; ")}`
+          : "";
         return [
-          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}`,
+          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}${p.legalArea ? ` | ${p.legalArea}` : ""}`,
           movimento,
+          audiencia,
+          prazos,
           "",
         ].filter(Boolean).join("");
       }).join("\n");
 
-      // Entradas do card liberadas pelo advogado para o cliente ver
+      // Entradas do card do processo (mesma fonte da página /processos)
+      // shareWithClient controla envio proativo, não acesso quando o cliente pergunta
       const caseCard = await prisma.clientCaseCard.findUnique({
         where: { clientId: conversation.clientId! },
         include: {
           entries: {
-            where: { shareWithClient: true },
             orderBy: { createdAt: "desc" },
-            take: 10,
+            take: 20,
           },
         },
       });
+      const sourceLabel: Record<string, string> = { DJEN: "DJEN", PJE: "PJe", COMMENT: "Advogado", SYSTEM: "Sistema" };
       const cardLines = caseCard?.entries.length
         ? caseCard.entries
-            .map(e => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
-            .join("\n")
+            .map((e: any) => {
+              const tag = sourceLabel[e.source as string] ?? e.source;
+              return `[${tag} · ${new Date(e.createdAt).toLocaleDateString("pt-BR")}] ${e.content}`;
+            })
+            .join("\n---\n")
         : null;
 
       clientContext = [
@@ -199,8 +237,8 @@ export async function processIncomingMessage(
           ? `\nProcessos ativos:\n${processLines}`
           : "\nNenhum processo ativo cadastrado.",
         cardLines
-          ? `\nInformações do escritório:\n${cardLines}`
-          : "",
+          ? `\nHistórico de movimentações e atualizações do processo (USE ESTES DADOS para responder perguntas sobre andamento, situação ou movimentações):\n${cardLines}`
+          : "\nNenhuma movimentação registrada no card do processo ainda.",
       ].filter(Boolean).join("\n");
     }
   }
@@ -258,21 +296,6 @@ export async function processIncomingMessage(
     hasMedia,
     operatorIntervened,
   });
-
-  // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
-  if (!conversation.clientId && result.qualifiedData?.cpf) {
-    const cpfClean = result.qualifiedData.cpf.replace(/\D/g, "");
-    const clientByCPF = await prisma.client.findFirst({
-      where: { organizationId, cpf: cpfClean },
-      select: { id: true },
-    });
-    if (clientByCPF) {
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { clientId: clientByCPF.id },
-      });
-    }
-  }
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────
   if (conversation.leadId && result.qualifiedData) {

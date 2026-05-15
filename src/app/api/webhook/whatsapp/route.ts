@@ -368,11 +368,13 @@ export async function POST(req: NextRequest) {
 
     // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
     // (ex: cliente envia PDF + ZIP juntos — Z-API dispara dois eventos quase simultâneos).
+    // Usa msg.createdAt como limite inferior para nunca suprimir respostas a mensagens
+    // anteriores legítimas (ex: IA perguntou CPF e cliente respondeu menos de 15s depois).
     const recentAiReply = await prisma.message.findFirst({
       where: {
         conversationId: conversation.id,
         isAI: true,
-        createdAt: { gte: new Date(clientMessageReceivedAt.getTime() - 15_000) },
+        createdAt: { gte: msg.createdAt },
       },
       select: { id: true },
     });
