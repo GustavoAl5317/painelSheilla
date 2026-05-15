@@ -230,6 +230,22 @@ export async function processIncomingMessage(
 
   const inbounds = chronological.filter(m => m.direction === "INBOUND");
   const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
+
+  // ── Menu programático para cliente cadastrado (primeira mensagem) ─────────
+  // Gera o menu diretamente, sem depender da IA, para garantir que o prompt
+  // base do banco não sobrescreva o comportamento esperado.
+  if (conversation.clientId && clientContext && !hadAiReply && !operatorIntervened) {
+    const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
+    const firstName = nameMatch?.[1]?.trim().split(" ")[0] ?? "";
+    const greeting = firstName ? `Olá, ${firstName}!` : "Olá!";
+    const menuMessage =
+      `${greeting} Sobre qual assunto posso ajudá-lo hoje?\n\n` +
+      `1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n` +
+      `2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n` +
+      `3. Atualização do meu processo\n` +
+      `4. Outros assuntos`;
+    return { content: menuMessage, shouldTransferToHuman: false, triageComplete: false, qualifiedData: { score: 0 } };
+  }
   const allInboundText = inbounds.map(m => m.content).join("\n");
   const lead = conversation.lead;
   const nameLooksPhone =
