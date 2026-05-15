@@ -141,6 +141,32 @@ export async function processIncomingMessage(
     }
   }
 
+  // ── Vinculação antecipada por CPF na mensagem atual ────────────────────────
+  // Se a conversa ainda não está vinculada a um cliente mas o usuário informou
+  // um CPF nesta mensagem, faz o lookup antes de chamar a IA para que ela já
+  // receba o contexto correto e possa responder com os dados do processo.
+  if (!conversation.clientId) {
+    const cpfInMessage = userMessage.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+    if (cpfInMessage) {
+      const cpfClean = cpfInMessage[0].replace(/\D/g, "");
+      const clientByCPF = await prisma.client.findFirst({
+        where: { organizationId, cpf: cpfClean },
+        select: { id: true },
+      });
+      if (clientByCPF) {
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { clientId: clientByCPF.id },
+        });
+        conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: convInclude,
+        });
+        if (!conversation) return null;
+      }
+    }
+  }
+
   // ── Contexto do cliente (se conversa já vinculada a um cliente) ───────────
   let clientContext: string | undefined;
   if (conversation.clientId) {
@@ -258,21 +284,6 @@ export async function processIncomingMessage(
     hasMedia,
     operatorIntervened,
   });
-
-  // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
-  if (!conversation.clientId && result.qualifiedData?.cpf) {
-    const cpfClean = result.qualifiedData.cpf.replace(/\D/g, "");
-    const clientByCPF = await prisma.client.findFirst({
-      where: { organizationId, cpf: cpfClean },
-      select: { id: true },
-    });
-    if (clientByCPF) {
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { clientId: clientByCPF.id },
-      });
-    }
-  }
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────
   if (conversation.leadId && result.qualifiedData) {
