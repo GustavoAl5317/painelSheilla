@@ -230,13 +230,26 @@ export async function processIncomingMessage(
 
   const inbounds = chronological.filter(m => m.direction === "INBOUND");
   const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
+  const allInboundText = inbounds.map(m => m.content).join("\n");
+  const lead = conversation.lead;
+  const nameLooksPhone =
+    !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
-  // ── Menu programático para cliente cadastrado (primeira mensagem) ─────────
-  // Gera o menu diretamente, sem depender da IA, para garantir que o prompt
-  // base do banco não sobrescreva o comportamento esperado.
-  if (conversation.clientId && clientContext && !hadAiReply && !operatorIntervened) {
-    const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
-    const firstName = nameMatch?.[1]?.trim().split(" ")[0] ?? "";
+  // ── Menu programático na primeira mensagem da conversa ───────────────────
+  // Dispara quando é cliente cadastrado (clientId) OU lead com nome real já
+  // conhecido (nameLooksPhone = false). Gera o menu direto, sem passar pela
+  // IA, para que o prompt base do banco não sobrescreva o comportamento.
+  const isFirstAiResponse = !hadAiReply && !operatorIntervened;
+  const isKnownContact = !!(conversation.clientId && clientContext) || !nameLooksPhone;
+
+  if (isFirstAiResponse && isKnownContact) {
+    let firstName = "";
+    if (clientContext) {
+      const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
+      firstName = nameMatch?.[1]?.trim().split(" ")[0] ?? "";
+    } else if (lead?.name && !nameLooksPhone) {
+      firstName = lead.name.trim().split(" ")[0];
+    }
     const greeting = firstName ? `Olá, ${firstName}!` : "Olá!";
     const menuMessage =
       `${greeting} Sobre qual assunto posso ajudá-lo hoje?\n\n` +
@@ -246,10 +259,6 @@ export async function processIncomingMessage(
       `4. Outros assuntos`;
     return { content: menuMessage, shouldTransferToHuman: false, triageComplete: false, qualifiedData: { score: 0 } };
   }
-  const allInboundText = inbounds.map(m => m.content).join("\n");
-  const lead = conversation.lead;
-  const nameLooksPhone =
-    !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
   const textSuggestsOngoing = (t: string) =>
     /dra\.?|doutor|doutora|dra\s|doutor\s|sra\.?|sr\.?|oab|quando\s+o|valor|pagamento|processo|honor|já\s|retorno|acordo|escritór|escrit|advogad|parcela|me\s+lig|falar com/i.test(
