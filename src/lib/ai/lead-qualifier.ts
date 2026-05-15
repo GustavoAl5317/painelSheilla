@@ -290,11 +290,25 @@ export async function processIncomingMessage(
   // diretamente pela IA, que usará o prompt do sistema para avisar que é a
   // assistente virtual e que não tem acesso ao histórico anterior.
 
+  // Nome a usar na saudação: prioridade Cliente cadastrado > Lead (se não for telefone)
+  let contactName: string | undefined;
+  if (conversation.clientId) {
+    const linkedClient = await prisma.client.findUnique({
+      where: { id: conversation.clientId },
+      select: { name: true },
+    });
+    if (linkedClient?.name) contactName = linkedClient.name;
+  }
+  if (!contactName && lead?.name && !nameLooksPhone) {
+    contactName = lead.name;
+  }
+
   const result = await runAIChat(config, history, userMessage, {
     clientContext,
     leadMode,
     hasMedia,
     operatorIntervened,
+    contactName,
   });
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────

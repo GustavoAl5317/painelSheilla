@@ -70,11 +70,11 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean }
+  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false } = options ?? {};
+  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false, contactName } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened, contactName) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -112,19 +112,50 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false, contactName?: string): string {
   const handoffNoContextRule = `
 REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 - O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
 - Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
 
+  const firstNameForGreeting = (() => {
+    const raw = contactName?.trim();
+    if (!raw) return "";
+    if (/^\+?[\d\s().-]{6,}$/.test(raw.replace(/\s/g, ""))) return "";
+    return raw.split(/\s+/)[0];
+  })();
+
+  const greetingTarget = firstNameForGreeting ? `${firstNameForGreeting}, tudo bem?` : "tudo bem?";
+
+  const menuGreetingRule = clientContext
+    ? `
+SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
+- Sempre que o cliente iniciar a conversa, cumprimentar ("Olá", "Oi", "Bom dia", "Boa tarde", "Boa noite", "Tudo bem?"), perguntar "como pode ajudar" / "quais são as opções", ou enviar mensagem sem indicar claramente o motivo, responda EXATAMENTE com esta saudação e menu, sem nenhuma palavra adicional, sem perguntar nome, e-mail, CPF ou número de processo antes:
+
+"Olá ${greetingTarget} Para que eu possa lhe direcionar, me diga exatamente em que posso lhe ajudar hoje:
+
+1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)
+2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)
+3. Sou cliente do escritório e gostaria de saber o andamento do meu processo
+4. Outros assuntos"
+
+- NUNCA pule esse menu na primeira interação. NUNCA pergunte CPF ou número de processo — você já tem o cadastro dele.
+- Só avance para resposta sobre processo APÓS o cliente escolher a opção 3.
+- Se o cliente cumprimentar de novo no meio da conversa ("Olá", "Oi") e o assunto anterior já terminou, repita o menu.
+- Se o cliente pedir explicitamente "quais são as opções" ou "o que você faz", repita o menu.`
+    : "";
+
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nREGRA OBRIGATÓRIA PARA CLIENTES CADASTRADOS:
-- Quando o cliente perguntar sobre andamento, situação ou movimentações do processo, VOCÊ DEVE responder usando os dados da seção "Histórico de movimentações e atualizações do processo" acima.
-- NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" ou "a equipe retornará em breve" quando houver histórico de movimentações disponível acima.
-- Se o histórico estiver vazio ("Nenhuma movimentação registrada"), aí sim diga: "Não tenho movimentações registradas no sistema ainda. A equipe do escritório poderá verificar isso para você."
+- Este cliente JÁ ESTÁ CADASTRADO. NUNCA peça CPF nem número de processo.
+- Use o PRIMEIRO NOME do cliente (do campo "Nome" acima) na saudação do menu.
+- SOMENTE quando o cliente escolher a opção 3 do menu (andamento do processo), responda usando os dados da seção "Histórico de movimentações e atualizações do processo" acima.
+- NUNCA invente, deduza ou parafraseie movimentações que não estejam EXPLICITAMENTE listadas no histórico acima. Cite a movimentação como está registrada.
+- Se o histórico estiver vazio ("Nenhuma movimentação registrada"), responda: "Não tenho movimentações registradas no sistema ainda. A equipe do escritório poderá verificar isso para você." e inclua [TRANSFERIR_PARA_HUMANO] no final.
+- NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
+- Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
 - Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.${handoffNoContextRule}`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
@@ -155,7 +186,9 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
-- Este é um cliente existente do escritório. Trate-o com cordialidade e pelo nome.
+- Este é um cliente existente do escritório. Trate-o com cordialidade pelo PRIMEIRO NOME do campo "Nome" acima.
+- Na PRIMEIRA mensagem (ou retomada após "Olá"/"Oi"), apresente o menu obrigatório de 4 opções definido em "SAUDAÇÃO INICIAL OBRIGATÓRIA". NUNCA pule essa saudação para responder direto sobre processo.
+- Só responda sobre andamento de processo APÓS o cliente escolher a opção 3.
 - Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
@@ -165,10 +198,9 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
-      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
-- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área, situação).
-- Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas.
-- Se ainda não coletou nome, e-mail, área ou situação, colete agora — mesmo que a conversa seja antiga.
+      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento — NÃO cadastrado):
+- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área/menu, situação).
+- Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas. NÃO mostre o menu de 4 opções antes de ter nome e e-mail.
 - Se a mensagem for claramente retorno operacional (envio de documentos, assinaturas, "finalizei", agradecimento à Dra.) e o histórico NÃO mostra o encadeamento, NÃO peça nome completo nem "novo caso ou anterior". Use APENAS: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e [TRANSFERIR_PARA_HUMANO].
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
@@ -178,8 +210,12 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, empático e profissional.`
-      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
-- Siga o FLUXO definido acima, uma etapa por vez. Nunca pule etapas nem junte perguntas.
+      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — NÃO cadastrado — triagem inicial):
+- Siga o FLUXO uma etapa por vez: NOME → E-MAIL → MENU DE ÁREAS → SITUAÇÃO. Nunca pule etapas nem junte perguntas.
+- PASSO 1 (NOME): Se ainda não tem o nome completo, pergunte antes de qualquer outra coisa.
+- PASSO 2 (E-MAIL): Quando tiver o nome, peça o e-mail.
+- PASSO 3 (MENU): Quando tiver nome E e-mail, apresente EXATAMENTE este menu:\n"Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
+- PASSO 4 (SITUAÇÃO): Após a escolha, peça a situação conforme o módulo (Previdenciário ou Trabalhista). Se for opção 3, peça o CPF para localizar o processo.
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça brevemente e redirecione com firmeza e cordialidade para a próxima etapa da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
@@ -195,7 +231,7 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
     ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
     : "";
 
-  return `${base}${clientSection}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
+  return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────
