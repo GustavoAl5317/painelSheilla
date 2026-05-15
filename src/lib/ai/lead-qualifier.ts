@@ -188,13 +188,21 @@ export async function processIncomingMessage(
     });
 
     if (client) {
-      const processLines = client.processes.map(p => {
+      const processLines = client.processes.map((p: any) => {
         const movimento = p.lastMovement
           ? `\n   Última movimentação (${p.lastMovementAt?.toLocaleDateString("pt-BR") ?? "?"}): ${p.lastMovement}`
           : "";
+        const audiencia = p.nextHearing
+          ? `\n   Próxima audiência: ${new Date(p.nextHearing).toLocaleDateString("pt-BR")}`
+          : "";
+        const prazos = p.deadlines?.length
+          ? `\n   Prazos pendentes: ${p.deadlines.map((d: any) => `${d.description ?? d.type} até ${new Date(d.dueDate).toLocaleDateString("pt-BR")}`).join("; ")}`
+          : "";
         return [
-          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}`,
+          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}${p.legalArea ? ` | ${p.legalArea}` : ""}`,
           movimento,
+          audiencia,
+          prazos,
           "",
         ].filter(Boolean).join("");
       }).join("\n");
@@ -212,7 +220,7 @@ export async function processIncomingMessage(
       });
       const cardLines = caseCard?.entries.length
         ? caseCard.entries
-            .map(e => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
+            .map((e: any) => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
             .join("\n")
         : null;
 
