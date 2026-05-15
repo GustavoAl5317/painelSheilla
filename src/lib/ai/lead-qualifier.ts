@@ -92,6 +92,47 @@ async function advanceLeadStage(
   }
 }
 
+// ─── Detecção de intenção de cliente existente ────────────────────────────────
+
+/**
+ * Retorna true quando a mensagem atual ou o histórico indicam que a pessoa
+ * é cliente do escritório buscando andamento de processo — NÃO um novo lead.
+ */
+function detectExistingClientIntent(history: AIMessage[], userMessage: string, allInboundText: string): boolean {
+  const allText = (allInboundText + " " + userMessage).toLowerCase();
+
+  // Pedido explícito sobre processo próprio
+  if (/andamento.*meu processo|meu processo|sou cliente|já sou cliente|cliente do escritório|ver meu processo|consultar.*processo/i.test(allText)) {
+    return true;
+  }
+
+  // Detecção de seleção da opção 3 no menu: IA apresentou opções e usuário respondeu "3"
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i - 1];
+    const curr = history[i];
+    if (
+      prev.role === "assistant" &&
+      /sou cliente.*escritório|cliente.*andamento|andamento.*processo/i.test(prev.content) &&
+      curr.role === "user" &&
+      /^3$/.test(curr.content.trim())
+    ) {
+      return true;
+    }
+  }
+
+  // Mensagem atual é "3" e a última mensagem da IA apresentou o menu
+  const lastAiMsg = [...history].reverse().find(m => m.role === "assistant");
+  if (
+    /^3$/.test(userMessage.trim()) &&
+    lastAiMsg &&
+    /sou cliente.*escritório|cliente.*andamento|andamento.*processo/i.test(lastAiMsg.content)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function processIncomingMessage(
@@ -183,16 +224,21 @@ export async function processIncomingMessage(
     });
 
     if (client) {
-      const processLines = client.processes.map(p => {
-        const movimento = p.lastMovement
-          ? `\n   Última movimentação (${p.lastMovementAt?.toLocaleDateString("pt-BR") ?? "?"}): ${p.lastMovement}`
-          : "";
-        return [
-          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}`,
-          movimento,
-          "",
-        ].filter(Boolean).join("");
-      }).join("\n");
+      const processLines = client.processes.map((p: typeof client.processes[number]) => {
+        const parts: string[] = [
+          `- Proc. ${p.number ?? "s/n"}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}`,
+        ];
+        if (p.lastMovement) {
+          parts.push(`  Última movimentação (${p.lastMovementAt?.toLocaleDateString("pt-BR") ?? "?"}): ${p.lastMovement}`);
+        }
+        if (p.deadlines.length > 0) {
+          const prazos = p.deadlines
+            .map((d: typeof p.deadlines[number]) => `${d.title} (vence: ${d.dueDate.toLocaleDateString("pt-BR")})`)
+            .join("; ");
+          parts.push(`  Prazos pendentes: ${prazos}`);
+        }
+        return parts.join("\n");
+      }).join("\n\n");
 
       // Entradas do card liberadas pelo advogado para o cliente ver
       const caseCard = await prisma.clientCaseCard.findUnique({
@@ -207,7 +253,7 @@ export async function processIncomingMessage(
       });
       const cardLines = caseCard?.entries.length
         ? caseCard.entries
-            .map(e => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
+            .map((e: typeof caseCard.entries[number]) => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
             .join("\n")
         : null;
 
@@ -220,7 +266,7 @@ export async function processIncomingMessage(
           ? `\nProcessos ativos:\n${processLines}`
           : "\nNenhum processo ativo cadastrado.",
         cardLines
-          ? `\nInformações do escritório:\n${cardLines}`
+          ? `\nInformações do escritório (atualizações compartilhadas):\n${cardLines}`
           : "",
       ].filter(Boolean).join("\n");
     }
@@ -269,18 +315,21 @@ export async function processIncomingMessage(
       ? "established"
       : "cold";
 
-  // Os cenários de "semContexto" e "conversaJaRolando" agora são tratados
-  // diretamente pela IA, que usará o prompt do sistema para avisar que é a
-  // assistente virtual e que não tem acesso ao histórico anterior.
+  // Detecta se a pessoa é cliente buscando andamento, mas ainda não foi identificada.
+  // Quando clientContext já existe, esse flag é irrelevante (a IA usa os dados diretamente).
+  const existingClientIntent = !conversation.clientId
+    ? detectExistingClientIntent(history, userMessage, allInboundText)
+    : false;
 
   const result = await runAIChat(config, history, userMessage, {
     clientContext,
     leadMode,
     hasMedia,
     operatorIntervened,
+    existingClientIntent,
   });
 
-  // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
+  // ── Vincula conversa ao cliente pelo CPF extraído pela IA (fallback para histórico) ──
   if (!conversation.clientId && result.qualifiedData?.cpf) {
     const cpfClean = result.qualifiedData.cpf.replace(/\D/g, "");
     const clientByCPF = await prisma.client.findFirst({
@@ -295,8 +344,9 @@ export async function processIncomingMessage(
     }
   }
 
-  // ── Atualiza dados e score do lead ────────────────────────────────────────
-  if (conversation.leadId && result.qualifiedData) {
+  // ── Atualiza dados e score do lead (somente para conversas sem cliente vinculado) ──
+  // Conversas de clientes cadastrados não devem alterar o kanban de leads
+  if (!conversation.clientId && conversation.leadId && result.qualifiedData) {
     const { name, email, phone, legalArea, caseSummary, score } = result.qualifiedData;
     const currentLead = conversation.lead;
     const update: Record<string, unknown> = {};
