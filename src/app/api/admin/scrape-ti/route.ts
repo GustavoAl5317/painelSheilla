@@ -246,29 +246,70 @@ async function upsertProcesses(
 /**
  * POST /api/admin/scrape-ti
  *
+ * Autenticação (uma das duas):
+ *   1. Sessão NextAuth (cookie de login no painel)
+ *   2. Header  x-api-key: <ADMIN_SCRAPE_API_KEY>
+ *
  * Body (JSON):
  * {
  *   tiEmail: "sheilaaraujoadv@sheilaaraujoadv.com",
  *   tiPassword: "Advocacia2026*@",
- *   dryRun?: false         // se true, só simula sem gravar
- *   onlyWithProcesses?: false  // se true, só cria card quando tem processos
+ *   dryRun?: false              // se true, só simula sem gravar
+ *   onlyWithProcesses?: false   // se true, só cria card quando tem processos
+ *   organizationSlug?: string   // obrigatório apenas se houver múltiplas organizações e não houver sessão
  * }
- *
- * Requer sessão autenticada no painel.
  */
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-  }
+  let orgId: string;
 
-  const orgId = (session.user as { organizationId: string }).organizationId;
+  // ── Autenticação por sessão (padrão) ───────────────────────────────────────
+  const session = await auth();
+
+  if (session) {
+    orgId = (session.user as { organizationId: string }).organizationId;
+  } else {
+    // ── Autenticação por API Key ─────────────────────────────────────────────
+    const apiKey = req.headers.get("x-api-key");
+    const expectedKey = process.env.ADMIN_SCRAPE_API_KEY;
+
+    if (!expectedKey || !apiKey || apiKey !== expectedKey) {
+      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+    }
+
+    // Resolve a organização pelo slug fornecido no body ou pela única existente
+    let bodyPreview: { organizationSlug?: string } = {};
+    try {
+      bodyPreview = await req.clone().json();
+    } catch { /* ignora, body será relido abaixo */ }
+
+    if (bodyPreview.organizationSlug) {
+      const org = await prisma.organization.findUnique({
+        where: { slug: bodyPreview.organizationSlug },
+        select: { id: true },
+      });
+      if (!org) {
+        return NextResponse.json({ error: "Organização não encontrada." }, { status: 404 });
+      }
+      orgId = org.id;
+    } else {
+      const orgs = await prisma.organization.findMany({ select: { id: true } });
+      if (orgs.length === 1) {
+        orgId = orgs[0].id;
+      } else {
+        return NextResponse.json(
+          { error: "Informe organizationSlug no body (há mais de uma organização)." },
+          { status: 400 }
+        );
+      }
+    }
+  }
 
   let body: {
     tiEmail?: string;
     tiPassword?: string;
     dryRun?: boolean;
     onlyWithProcesses?: boolean;
+    organizationSlug?: string;
   };
 
   try {
