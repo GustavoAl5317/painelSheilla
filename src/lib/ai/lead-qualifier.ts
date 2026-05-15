@@ -250,7 +250,7 @@ export async function processIncomingMessage(
     } else if (lead?.name && !nameLooksPhone) {
       firstName = lead.name.trim().split(" ")[0];
     }
-    const greeting = firstName ? `Olá, ${firstName}! Tudo bem?` : "Olá tudo bem?";
+    const greeting = firstName ? `Olá ${firstName} tudo bem?` : "Olá tudo bem?";
     const menuMessage =
       `${greeting} Para que eu possa lhe direcionar, me diga exatamente em que posso lhe ajudar hoje:\n\n` +
       `1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n` +
