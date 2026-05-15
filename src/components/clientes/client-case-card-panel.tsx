@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { LayoutList, Loader2, Save, MessageSquare } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
+function stripMarkdown(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
 type Entry = {
   id: string;
   source: string;
@@ -26,6 +30,7 @@ const sourceLabel: Record<string, string> = {
   DJEN: "DJEN",
   PJE: "PJe",
   SYSTEM: "Sistema",
+  TRAMITACAO_INTELIGENTE: "Tramitação",
 };
 
 export function ClientCaseCardPanel({ clientId, initialProcessNumber, initialNotes }: Props) {
@@ -39,6 +44,9 @@ export function ClientCaseCardPanel({ clientId, initialProcessNumber, initialNot
 
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(true);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const loadEntries = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/case-card`);
@@ -137,20 +145,35 @@ export function ClientCaseCardPanel({ clientId, initialProcessNumber, initialNot
             <p className="text-sm text-gray-400">Nenhuma atualização ainda.</p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {entries.map(e => (
-                <div key={e.id} className="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2 text-[10px] text-gray-400 mb-1">
-                    <span className="font-medium text-violet-600">{sourceLabel[e.source] ?? e.source}</span>
-                    <span>{formatDateTime(e.createdAt)}</span>
+              {entries.map(e => {
+                const LIMIT = 300;
+                const clean = stripMarkdown(e.content);
+                const isLong = clean.length > LIMIT;
+                const expanded = expandedIds.has(e.id);
+                const displayed = isLong && !expanded ? clean.slice(0, LIMIT) + "…" : clean;
+                return (
+                  <div key={e.id} className="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-gray-400 mb-1">
+                      <span className="font-medium text-violet-600">{sourceLabel[e.source] ?? e.source}</span>
+                      <span>{formatDateTime(e.createdAt)}</span>
+                    </div>
+                    <p className="text-gray-800 whitespace-pre-wrap break-words text-[13px]">{displayed}</p>
+                    {isLong && (
+                      <button
+                        onClick={() => toggleExpand(e.id)}
+                        className="mt-1 text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                      >
+                        {expanded ? "Ver menos ▲" : "Ver mais ▼"}
+                      </button>
+                    )}
+                    {e.source === "COMMENT" && (
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {e.shareWithClient ? "Enviado ao cliente" : "Interno"}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-gray-800 whitespace-pre-wrap break-words text-[13px]">{e.content}</p>
-                  {e.source === "COMMENT" && (
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      {e.shareWithClient ? "Enviado ao cliente" : "Interno"}
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
