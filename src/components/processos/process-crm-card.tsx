@@ -64,6 +64,11 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
   /* ── toggle envio ── */
   const [toggling, setToggling] = useState(false);
 
+  /* ── expandir entradas longas ── */
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
   const load = useCallback(async () => {
     setLoadingEntries(true);
     const res = await fetch(`/api/processes/${processId}/updates`);
@@ -238,6 +243,10 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {entries.map(e => {
                   const src = sourceStyle[e.source] ?? { label: e.source, color: "text-gray-500 bg-gray-100" };
+                  const LIMIT = 300;
+                  const isLong = e.content.length > LIMIT;
+                  const expanded = expandedIds.has(e.id);
+                  const displayed = isLong && !expanded ? e.content.slice(0, LIMIT) + "…" : e.content;
                   return (
                     <div key={e.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5">
                       <div className="flex items-center justify-between gap-2 mb-2">
@@ -247,8 +256,16 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
                         <span className="text-[10px] text-gray-400">{fmtDt(e.createdAt)}</span>
                       </div>
                       <p className="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">
-                        {e.content}
+                        {displayed}
                       </p>
+                      {isLong && (
+                        <button
+                          onClick={() => toggleExpand(e.id)}
+                          className="mt-1.5 text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                        >
+                          {expanded ? "Ver menos ▲" : "Ver mais ▼"}
+                        </button>
+                      )}
                       {e.source === "COMMENT" && (
                         <div className="flex items-center gap-1 mt-2">
                           <MessageSquare className="h-3 w-3 text-gray-300" />

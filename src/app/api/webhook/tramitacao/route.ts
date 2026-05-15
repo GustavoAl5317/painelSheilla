@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
 function stripHtml(html: string): string {
   return html
-    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -44,15 +44,19 @@ function toTitleCase(str: string): string {
   return str.toLowerCase().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-/** Extrai as 1-2 primeiras frases de um texto de publicação para exibição ao cliente. */
+/** Limpa HTML e normaliza espaços, sem truncar — para salvar o texto completo no card. */
+function limparTexto(texto: string | undefined | null): string {
+  if (!texto) return "";
+  return stripHtml(texto)
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Versão resumida (até 300 chars) para notificação WhatsApp. */
 function resumirPublicacao(texto: string | undefined | null): string {
   if (!texto) return "";
-  const limpo = stripHtml(texto)
-    .replace(/\n+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  // Pega até 300 caracteres terminando em frase completa
+  const limpo = limparTexto(texto).replace(/\n+/g, " ");
   if (limpo.length <= 300) return limpo;
   const corte = limpo.slice(0, 300);
   const ultimoPonto = Math.max(corte.lastIndexOf(". "), corte.lastIndexOf("! "), corte.lastIndexOf("? "));
@@ -166,11 +170,12 @@ async function processWebhook(organizationId: string, payload: any) {
           }
 
           // Registra entrada na linha do tempo (visível ao cliente na página de acompanhamento)
-          const resumo = resumirPublicacao(pub.texto);
+          // Salva o texto completo (sem truncar) para leitura integral no card
+          const textoCompleto = limparTexto(pub.texto);
           const entryLines = [
             pub.nomeClasse ? toTitleCase(pub.nomeClasse) : null,
             pub.nomeOrgao ?? pub.siglaTribunal ?? null,
-            resumo || null,
+            textoCompleto || null,
           ].filter(Boolean).join("\n");
 
           if (entryLines) {

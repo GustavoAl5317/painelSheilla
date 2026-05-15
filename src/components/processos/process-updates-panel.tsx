@@ -51,6 +51,9 @@ export function ProcessUpdatesPanel({ processId, processNumber }: Props) {
   const [shareWithClient, setShareWithClient] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/processes/${processId}/updates`);
@@ -158,6 +161,10 @@ export function ProcessUpdatesPanel({ processId, processNumber }: Props) {
             <div className="space-y-3">
               {entries.map((entry) => {
                 const src = sourceLabel[entry.source] ?? { label: entry.source, color: "text-gray-500 bg-gray-100" };
+                const LIMIT = 300;
+                const isLong = entry.content.length > LIMIT;
+                const expanded = expandedIds.has(entry.id);
+                const displayed = isLong && !expanded ? entry.content.slice(0, LIMIT) + "…" : entry.content;
                 return (
                   <div key={entry.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5">
                     <div className="flex items-center justify-between gap-2 mb-2">
@@ -167,8 +174,16 @@ export function ProcessUpdatesPanel({ processId, processNumber }: Props) {
                       <span className="text-[10px] text-gray-400">{formatDateTime(entry.createdAt)}</span>
                     </div>
                     <p className="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">
-                      {entry.content}
+                      {displayed}
                     </p>
+                    {isLong && (
+                      <button
+                        onClick={() => toggleExpand(entry.id)}
+                        className="mt-1.5 text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                      >
+                        {expanded ? "Ver menos ▲" : "Ver mais ▼"}
+                      </button>
+                    )}
                     {entry.source === "COMMENT" && (
                       <div className="flex items-center gap-1 mt-2">
                         <MessageSquare className="h-3 w-3 text-gray-300" />
