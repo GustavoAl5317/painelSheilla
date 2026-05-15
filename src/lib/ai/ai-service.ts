@@ -120,7 +120,12 @@ REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nSe o cliente perguntar sobre seu processo ou movimentações, use as informações acima para responder de forma clara e sem jargão jurídico. Nunca invente informações além do que está listado acima.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.${handoffNoContextRule}
+
+REGRA PARA CLIENTE EXISTENTE — OPÇÃO 3:
+- Se o cliente selecionar a opção 3 ("Sou cliente do escritório e gostaria de saber o andamento do meu processo") ou disser que já é cliente e quer saber o andamento do processo, NÃO faça triagem de novo lead.
+- Peça APENAS o CPF do cliente para identificá-lo no sistema: "Por favor, informe seu CPF para que eu possa verificar o andamento do seu processo."
+- Quando o CPF for informado, agradeça e diga que as informações serão verificadas e a equipe retornará em breve.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
@@ -145,11 +150,6 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
-
-REGRA PARA CLIENTE EXISTENTE — OPÇÃO 3:
-- Se o cliente selecionar a opção 3 ("Sou cliente do escritório e gostaria de saber o andamento do meu processo") ou disser que já é cliente e quer saber o andamento do processo, e você NÃO tiver os dados do cliente na seção "DADOS DO CLIENTE" acima, NÃO faça triagem de novo lead.
-- Nesse caso, peça APENAS o CPF do cliente para identificá-lo no sistema. Uma pergunta simples como: "Por favor, informe seu CPF para que eu possa verificar o andamento do seu processo."
-- Quando o CPF for informado, agradeça e diga que as informações serão verificadas e a equipe retornará em breve.
 
 REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o cliente escolher a opção "4 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
