@@ -207,14 +207,14 @@ export async function processIncomingMessage(
         ].filter(Boolean).join("");
       }).join("\n");
 
-      // Entradas do card liberadas pelo advogado para o cliente ver
+      // Entradas do card do processo (mesma fonte da página /processos)
+      // shareWithClient controla envio proativo, não acesso quando o cliente pergunta
       const caseCard = await prisma.clientCaseCard.findUnique({
         where: { clientId: conversation.clientId! },
         include: {
           entries: {
-            where: { shareWithClient: true },
             orderBy: { createdAt: "desc" },
-            take: 10,
+            take: 20,
           },
         },
       });
