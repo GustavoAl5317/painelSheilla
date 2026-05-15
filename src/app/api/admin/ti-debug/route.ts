@@ -5,32 +5,31 @@ export const runtime = "nodejs";
 
 const BASE = "https://planilha.tramitacaointeligente.com.br";
 
-/**
- * POST /api/admin/ti-debug
- * Body: { "email": "...", "password": "..." }
- *
- * Testa cada possível endpoint de autenticação e retorna status + body bruto
- * para descobrir qual a API correta da Tramitação Inteligente.
- */
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json();
 
   const jsonHeaders = {
     "Content-Type": "application/json",
     Accept: "application/json",
-    "User-Agent": "Mozilla/5.0 (compatible; PainelScraper/1.0)",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Origin": BASE,
+    "Referer": `${BASE}/`,
   };
 
   const results: Record<string, unknown>[] = [];
 
+  // Apenas variantes /api/v1/ — essas passam pelo Cloudflare e chegam no Rails
   const attempts = [
-    { label: "POST /auth/sign_in (devise_token_auth)", url: `${BASE}/auth/sign_in`, body: JSON.stringify({ email, password }) },
-    { label: "POST /api/v1/users/sign_in", url: `${BASE}/api/v1/users/sign_in`, body: JSON.stringify({ user: { email, password } }) },
-    { label: "POST /api/v1/tokens", url: `${BASE}/api/v1/tokens`, body: JSON.stringify({ email, password }) },
-    { label: "POST /api/v1/login", url: `${BASE}/api/v1/login`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/auth/sign_in", url: `${BASE}/api/v1/auth/sign_in`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/auth/sign_in (user wrap)", url: `${BASE}/api/v1/auth/sign_in`, body: JSON.stringify({ user: { email, password } }) },
     { label: "POST /api/v1/sessions", url: `${BASE}/api/v1/sessions`, body: JSON.stringify({ email, password }) },
-    { label: "POST /api/login", url: `${BASE}/api/login`, body: JSON.stringify({ email, password }) },
-    { label: "POST /api/sessions", url: `${BASE}/api/sessions`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/sessions (user wrap)", url: `${BASE}/api/v1/sessions`, body: JSON.stringify({ user: { email, password } }) },
+    { label: "POST /api/v1/login", url: `${BASE}/api/v1/login`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/authenticate", url: `${BASE}/api/v1/authenticate`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/token", url: `${BASE}/api/v1/token`, body: JSON.stringify({ email, password }) },
+    { label: "POST /api/v1/access_tokens", url: `${BASE}/api/v1/access_tokens`, body: JSON.stringify({ email, password }) },
+    // Tenta também com snake_case
+    { label: "POST /api/v1/auth/sign_in (snake)", url: `${BASE}/api/v1/auth/sign_in`, body: JSON.stringify({ user_email: email, user_password: password }) },
   ];
 
   for (const attempt of attempts) {
@@ -44,78 +43,31 @@ export async function POST(req: NextRequest) {
 
       let body: unknown = null;
       const text = await res.text().catch(() => "");
-      try { body = JSON.parse(text); } catch { body = text.slice(0, 500); }
-
-      const responseHeaders: Record<string, string> = {};
-      res.headers.forEach((v, k) => { responseHeaders[k] = v; });
+      const isCfChallenge = text.includes("Just a moment") || res.headers.get("cf-mitigated") === "challenge";
+      try { body = JSON.parse(text); } catch { body = isCfChallenge ? "[Cloudflare challenge]" : text.slice(0, 300); }
 
       results.push({
         label: attempt.label,
-        url: attempt.url,
         status: res.status,
-        headers: responseHeaders,
+        cfBlocked: isCfChallenge,
+        xRuntime: res.headers.get("x-runtime"),
         body,
       });
     } catch (err) {
-      results.push({ label: attempt.label, url: attempt.url, error: (err as Error).message });
+      results.push({ label: attempt.label, error: (err as Error).message });
     }
   }
 
-  // Tenta também GET na raiz pra ver se tem algo
+  // Descobre rotas disponíveis via OPTIONS
   try {
-    const res = await fetch(`${BASE}/api/v1`, { headers: { Accept: "application/json" }, redirect: "manual" });
-    const text = await res.text().catch(() => "");
-    results.push({ label: "GET /api/v1 (discovery)", status: res.status, body: text.slice(0, 500) });
-  } catch (err) {
-    results.push({ label: "GET /api/v1 (discovery)", error: (err as Error).message });
-  }
-
-  // Tenta web form login para ver o redirect
-  try {
-    const loginPageRes = await fetch(`${BASE}/users/sign_in`, {
-      headers: { "User-Agent": "Mozilla/5.0", Accept: "text/html" },
+    const res = await fetch(`${BASE}/api/v1/auth/sign_in`, {
+      method: "OPTIONS",
+      headers: { "Origin": BASE, "Access-Control-Request-Method": "POST" },
       redirect: "manual",
     });
-    const html = await loginPageRes.text();
-    const csrfMatch = html.match(/name="authenticity_token" value="([^"]+)"/);
-    const csrf = csrfMatch?.[1] ?? "";
-    const cookies = loginPageRes.headers.get("set-cookie") ?? "";
-
-    if (csrf) {
-      const formBody = new URLSearchParams({
-        authenticity_token: csrf,
-        "user[email]": email,
-        "user[password]": password,
-        commit: "Entrar",
-      });
-
-      const signInRes = await fetch(`${BASE}/users/sign_in`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Cookie: cookies.split(",").map(c => c.split(";")[0]?.trim()).filter(Boolean).join("; "),
-          "User-Agent": "Mozilla/5.0",
-          Referer: `${BASE}/users/sign_in`,
-        },
-        body: formBody.toString(),
-        redirect: "manual",
-      });
-
-      const setCookie = signInRes.headers.get("set-cookie") ?? "";
-      const location = signInRes.headers.get("location") ?? "";
-
-      results.push({
-        label: "Web form POST /users/sign_in",
-        status: signInRes.status,
-        location,
-        hasCsrf: !!csrf,
-        setCookie: setCookie.slice(0, 300),
-      });
-    } else {
-      results.push({ label: "Web form GET /users/sign_in", status: loginPageRes.status, note: "CSRF não encontrado no HTML" });
-    }
+    results.push({ label: "OPTIONS /api/v1/auth/sign_in", status: res.status, allow: res.headers.get("allow") });
   } catch (err) {
-    results.push({ label: "Web form /users/sign_in", error: (err as Error).message });
+    results.push({ label: "OPTIONS /api/v1/auth/sign_in", error: (err as Error).message });
   }
 
   return NextResponse.json({ results });
