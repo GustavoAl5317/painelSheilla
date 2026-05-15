@@ -54,10 +54,12 @@ function replySoundsLikeContextConfusion(assistantReply: string): boolean {
 
 export function shouldUseUnclearContextFallbackReply(
   leadMode: LeadChatMode,
-  _clientContext: string | undefined,
+  clientContext: string | undefined,
   userMessage: string,
   assistantReply: string
 ): boolean {
+  // Cliente identificado: a IA tem dados reais — nunca sobrescreve com fallback genérico
+  if (clientContext) return false;
   if (!replySoundsLikeContextConfusion(assistantReply)) return false;
   if (leadMode === "established") return true;
   if (userMessageSuggestsOngoingOrReturn(userMessage)) return true;
