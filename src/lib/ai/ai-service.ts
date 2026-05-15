@@ -127,9 +127,10 @@ REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 
   const greetingTarget = firstNameForGreeting ? `${firstNameForGreeting}, tudo bem?` : "tudo bem?";
 
-  const menuGreetingRule = `
-SAUDAÇÃO INICIAL OBRIGATÓRIA (MENU DE OPÇÕES):
-- Sempre que o cliente iniciar a conversa, cumprimentar ("Olá", "Oi", "Bom dia", "Boa tarde", "Boa noite", "Tudo bem?"), perguntar "como pode ajudar" / "quais são as opções", ou enviar mensagem sem indicar claramente o motivo, responda EXATAMENTE com esta saudação e menu, sem nenhuma palavra adicional, sem perguntar nome ou e-mail antes:
+  const menuGreetingRule = clientContext
+    ? `
+SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
+- Sempre que o cliente iniciar a conversa, cumprimentar ("Olá", "Oi", "Bom dia", "Boa tarde", "Boa noite", "Tudo bem?"), perguntar "como pode ajudar" / "quais são as opções", ou enviar mensagem sem indicar claramente o motivo, responda EXATAMENTE com esta saudação e menu, sem nenhuma palavra adicional, sem perguntar nome, e-mail, CPF ou número de processo antes:
 
 "Olá ${greetingTarget} Para que eu possa lhe direcionar, me diga exatamente em que posso lhe ajudar hoje:
 
@@ -138,10 +139,11 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (MENU DE OPÇÕES):
 3. Sou cliente do escritório e gostaria de saber o andamento do meu processo
 4. Outros assuntos"
 
-- NUNCA pule esse menu na primeira interação. NUNCA pergunte CPF, número de processo ou nome ANTES de o cliente escolher uma opção.
-- Só avance para coleta de dados, lookup de processo ou triagem APÓS o cliente escolher 1, 2, 3 ou 4.
+- NUNCA pule esse menu na primeira interação. NUNCA pergunte CPF ou número de processo — você já tem o cadastro dele.
+- Só avance para resposta sobre processo APÓS o cliente escolher a opção 3.
 - Se o cliente cumprimentar de novo no meio da conversa ("Olá", "Oi") e o assunto anterior já terminou, repita o menu.
-- Se o cliente pedir explicitamente "quais são as opções" ou "o que você faz", repita o menu.`;
+- Se o cliente pedir explicitamente "quais são as opções" ou "o que você faz", repita o menu.`
+    : "";
 
   const clientSection = clientContext
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nREGRA OBRIGATÓRIA PARA CLIENTES CADASTRADOS:
@@ -153,7 +155,7 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (MENU DE OPÇÕES):
 - NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
 - Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
 - Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) e você NÃO tem cadastro dela, peça o CPF para localizar o processo.${handoffNoContextRule}`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.${handoffNoContextRule}`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
@@ -196,9 +198,9 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : leadMode === "established"
-      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento):
-- Na PRIMEIRA mensagem desta interação (ou se o cliente cumprimentar novamente), apresente o menu obrigatório de 4 opções definido em "SAUDAÇÃO INICIAL OBRIGATÓRIA". Não pergunte nome ou e-mail antes do menu.
-- Após o cliente escolher uma opção, identifique etapas pendentes do FLUXO (nome, e-mail, situação) e siga UMA por vez.
+      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento — NÃO cadastrado):
+- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área/menu, situação).
+- Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas. NÃO mostre o menu de 4 opções antes de ter nome e e-mail.
 - Se a mensagem for claramente retorno operacional (envio de documentos, assinaturas, "finalizei", agradecimento à Dra.) e o histórico NÃO mostra o encadeamento, NÃO peça nome completo nem "novo caso ou anterior". Use APENAS: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e [TRANSFERIR_PARA_HUMANO].
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
@@ -208,9 +210,12 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, empático e profissional.`
-      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — triagem inicial):
-- PRIMEIRA RESPOSTA: apresente o menu obrigatório de 4 opções definido em "SAUDAÇÃO INICIAL OBRIGATÓRIA". NÃO pergunte nome nem e-mail antes do menu.
-- DEPOIS do cliente escolher uma opção, siga o FLUXO uma etapa por vez (nome → e-mail → situação). Nunca pule etapas nem junte perguntas.
+      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — NÃO cadastrado — triagem inicial):
+- Siga o FLUXO uma etapa por vez: NOME → E-MAIL → MENU DE ÁREAS → SITUAÇÃO. Nunca pule etapas nem junte perguntas.
+- PASSO 1 (NOME): Se ainda não tem o nome completo, pergunte antes de qualquer outra coisa.
+- PASSO 2 (E-MAIL): Quando tiver o nome, peça o e-mail.
+- PASSO 3 (MENU): Quando tiver nome E e-mail, apresente EXATAMENTE este menu:\n"Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
+- PASSO 4 (SITUAÇÃO): Após a escolha, peça a situação conforme o módulo (Previdenciário ou Trabalhista). Se for opção 3, peça o CPF para localizar o processo.
 - Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça brevemente e redirecione com firmeza e cordialidade para a próxima etapa da triagem.
 - NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
