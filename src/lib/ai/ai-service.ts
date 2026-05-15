@@ -149,7 +149,13 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
-- Este é um cliente existente do escritório. Trate-o com cordialidade e pelo nome.
+- AÇÃO IMEDIATA: Se ainda não apresentou o menu de opções nesta conversa, cumprimente o cliente pelo primeiro nome (extraia dos dados acima) e apresente exatamente este menu, sem adicionar nenhuma outra pergunta:
+  "Olá, [PRIMEIRO NOME]! Sobre qual assunto posso ajudá-lo hoje?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Atualização do meu processo\n4. Outros assuntos"
+- Aguarde a escolha do cliente antes de responder sobre qualquer assunto.
+- Se o cliente escolher a opção 3 (processo), use os dados do cliente listados acima para informar o andamento. NUNCA peça CPF nem dados que já constam nos dados acima.
+- Se o cliente escolher opção 1 ou 2 (novo assunto jurídico), siga o módulo correspondente do FLUXO, mas NÃO peça nome nem e-mail — ele já é cliente.
+- Se o cliente escolher opção 4 (outros assuntos), responda APENAS: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado." e inclua [TRANSFERIR_PARA_HUMANO] no final.
+- Se o cliente já indicou claramente o assunto na primeira mensagem (ex: "quero saber do meu processo"), apresente o menu mesmo assim para confirmar e só então responda.
 - Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
