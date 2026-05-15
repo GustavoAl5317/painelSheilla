@@ -29,11 +29,25 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"');
+}
+
+function toTitleCase(str: string): string {
+  return str.toLowerCase().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 /** Extrai as 1-2 primeiras frases de um texto de publicação para exibição ao cliente. */
 function resumirPublicacao(texto: string | undefined | null): string {
   if (!texto) return "";
-  // Remove cabeçalhos típicos de diário (maiúsculas, datas, referências numéricas)
-  const limpo = texto
+  const limpo = stripHtml(texto)
     .replace(/\n+/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -154,7 +168,7 @@ async function processWebhook(organizationId: string, payload: any) {
           // Registra entrada na linha do tempo (visível ao cliente na página de acompanhamento)
           const resumo = resumirPublicacao(pub.texto);
           const entryLines = [
-            pub.nomeClasse ? `**${pub.nomeClasse}**` : null,
+            pub.nomeClasse ? toTitleCase(pub.nomeClasse) : null,
             pub.nomeOrgao ?? pub.siglaTribunal ?? null,
             resumo || null,
           ].filter(Boolean).join("\n");

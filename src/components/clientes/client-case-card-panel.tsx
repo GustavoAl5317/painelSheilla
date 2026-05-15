@@ -26,6 +26,7 @@ const sourceLabel: Record<string, string> = {
   DJEN: "DJEN",
   PJE: "PJe",
   SYSTEM: "Sistema",
+  TRAMITACAO_INTELIGENTE: "Tramitação",
 };
 
 export function ClientCaseCardPanel({ clientId, initialProcessNumber, initialNotes }: Props) {

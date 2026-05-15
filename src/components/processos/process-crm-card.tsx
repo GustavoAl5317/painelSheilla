@@ -27,10 +27,11 @@ interface Props {
 }
 
 const sourceStyle: Record<string, { label: string; color: string }> = {
-  COMMENT: { label: "Advogado", color: "text-blue-600 bg-blue-50" },
-  DJEN:    { label: "DJEN",     color: "text-violet-600 bg-violet-50" },
-  PJE:     { label: "PJe",      color: "text-emerald-600 bg-emerald-50" },
-  SYSTEM:  { label: "Sistema",  color: "text-gray-500 bg-gray-100" },
+  COMMENT:                { label: "Advogado",   color: "text-blue-600 bg-blue-50" },
+  DJEN:                   { label: "DJEN",       color: "text-violet-600 bg-violet-50" },
+  PJE:                    { label: "PJe",        color: "text-emerald-600 bg-emerald-50" },
+  SYSTEM:                 { label: "Sistema",    color: "text-gray-500 bg-gray-100" },
+  TRAMITACAO_INTELIGENTE: { label: "Tramitação", color: "text-orange-600 bg-orange-50" },
 };
 
 function fmtDt(iso: string) {
