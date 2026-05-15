@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { LayoutList, Loader2, Save, MessageSquare } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
+function stripMarkdown(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
 type Entry = {
   id: string;
   source: string;
@@ -143,9 +147,10 @@ export function ClientCaseCardPanel({ clientId, initialProcessNumber, initialNot
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {entries.map(e => {
                 const LIMIT = 300;
-                const isLong = e.content.length > LIMIT;
+                const clean = stripMarkdown(e.content);
+                const isLong = clean.length > LIMIT;
                 const expanded = expandedIds.has(e.id);
-                const displayed = isLong && !expanded ? e.content.slice(0, LIMIT) + "…" : e.content;
+                const displayed = isLong && !expanded ? clean.slice(0, LIMIT) + "…" : clean;
                 return (
                   <div key={e.id} className="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-gray-400 mb-1">

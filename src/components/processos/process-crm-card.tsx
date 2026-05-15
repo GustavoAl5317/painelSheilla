@@ -34,6 +34,10 @@ const sourceStyle: Record<string, { label: string; color: string }> = {
   TRAMITACAO_INTELIGENTE: { label: "Tramitação", color: "text-orange-600 bg-orange-50" },
 };
 
+function stripMarkdown(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
 function fmtDt(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -244,9 +248,10 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
                 {entries.map(e => {
                   const src = sourceStyle[e.source] ?? { label: e.source, color: "text-gray-500 bg-gray-100" };
                   const LIMIT = 300;
-                  const isLong = e.content.length > LIMIT;
+                  const clean = stripMarkdown(e.content);
+                  const isLong = clean.length > LIMIT;
                   const expanded = expandedIds.has(e.id);
-                  const displayed = isLong && !expanded ? e.content.slice(0, LIMIT) + "…" : e.content;
+                  const displayed = isLong && !expanded ? clean.slice(0, LIMIT) + "…" : clean;
                   return (
                     <div key={e.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5">
                       <div className="flex items-center justify-between gap-2 mb-2">

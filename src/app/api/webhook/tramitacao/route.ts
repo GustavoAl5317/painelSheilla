@@ -141,16 +141,19 @@ async function processWebhook(organizationId: string, payload: any) {
 
       // ── Interpretação por IA ─────────────────────────────────────────────
       const textoCompleto = limparTexto(pub.texto);
-      let interpretation: { tipoMovimentacao: string; resumo: string; mensagemCliente: string; diasPrazo?: number } = {
-        tipoMovimentacao: toTitleCase(pub.nomeClasse ?? "Publicação Judicial"),
-        resumo: textoCompleto.slice(0, 300),
-        mensagemCliente: `Nova movimentação no processo ${processoFormatado}.`,
-      };
+      let aiResumo: string | null = null;
+      let tipoMovimentacao = toTitleCase(pub.nomeClasse ?? "Publicação Judicial");
+      let mensagemCliente = `Nova movimentação no processo ${processoFormatado}.`;
+      let diasPrazo: number | undefined;
 
       if (aiKey && aiProvider && textoCompleto) {
         try {
-          interpretation = await interpretLegalMovement(textoCompleto, aiKey, aiProvider);
-        } catch { /* ignora falha de IA — usa fallback */ }
+          const interp = await interpretLegalMovement(textoCompleto, aiKey, aiProvider);
+          tipoMovimentacao = interp.tipoMovimentacao;
+          aiResumo = interp.resumo;
+          mensagemCliente = interp.mensagemCliente;
+          diasPrazo = interp.diasPrazo;
+        } catch { /* ignora falha de IA */ }
       }
 
       // Garante ClientCaseCard, CrmCard e registra entrada na linha do tempo
@@ -194,12 +197,14 @@ async function processWebhook(organizationId: string, payload: any) {
           }
 
           // Entrada na timeline:
-          // Cabeçalho com interpretação da IA + texto integral da publicação abaixo
+          // Com IA: tipo + resumo inteligente → depois texto integral
+          // Sem IA: tipo → texto integral diretamente (sem truncar)
+          const orgaoLabel = pub.nomeOrgao ?? pub.siglaTribunal ?? "";
           const entryContent = [
-            `${interpretation.tipoMovimentacao} — ${pub.nomeOrgao ?? pub.siglaTribunal ?? ""}`.trimEnd(),
-            interpretation.resumo,
-            textoCompleto ? `\nTexto da publicação:\n${textoCompleto}` : null,
-          ].filter(Boolean).join("\n");
+            `${tipoMovimentacao}${orgaoLabel ? ` — ${orgaoLabel}` : ""}`,
+            aiResumo ?? null,
+            textoCompleto ?? null,
+          ].filter(Boolean).join("\n\n");
 
           if (entryContent) {
             await prisma.caseCardEntry.create({
@@ -220,7 +225,7 @@ async function processWebhook(organizationId: string, payload: any) {
       await prisma.process.update({
         where: { id: linkedProcess.id },
         data: {
-          lastMovement: `[${interpretation.tipoMovimentacao}] ${interpretation.resumo}`,
+          lastMovement: `[${tipoMovimentacao}] ${aiResumo ?? textoCompleto.slice(0, 150)}`,
           lastMovementAt: new Date(),
         },
       }).catch(() => {});
@@ -232,8 +237,8 @@ async function processWebhook(organizationId: string, payload: any) {
           ? new Date(pub.disponibilizacao_date)
           : new Date();
 
-      if (interpretation.diasPrazo) {
-        dueDate.setDate(dueDate.getDate() + interpretation.diasPrazo);
+      if (diasPrazo) {
+        dueDate.setDate(dueDate.getDate() + diasPrazo);
       }
 
       await prisma.deadline.create({
@@ -241,9 +246,9 @@ async function processWebhook(organizationId: string, payload: any) {
           organizationId,
           title: idempotencyKey,
           description: [
-            `Tipo: ${interpretation.tipoMovimentacao}`,
+            `Tipo: ${tipoMovimentacao}`,
             pub.nomeOrgao ? `Órgão: ${pub.nomeOrgao}` : null,
-            `Resumo: ${interpretation.resumo}`,
+            aiResumo ? `Resumo: ${aiResumo}` : null,
           ].filter(Boolean).join("\n"),
           dueDate,
           processId: linkedProcess.id,
@@ -258,8 +263,8 @@ async function processWebhook(organizationId: string, payload: any) {
         data: {
           organizationId,
           type: "PROCESS_UPDATE",
-          title: `TI: ${interpretation.tipoMovimentacao}${isUrgent ? " 🔴 URGENTE" : ""}`,
-          message: `Processo ${processoFormatado} — ${interpretation.resumo.slice(0, 120)}`,
+          title: `TI: ${tipoMovimentacao}${isUrgent ? " 🔴 URGENTE" : ""}`,
+          message: `Processo ${processoFormatado} — ${(aiResumo ?? textoCompleto).slice(0, 120)}`,
           metadata: {
             source: "TRAMITACAO_INTELIGENTE",
             link: pub.link_tramitacao ?? pub.link,
@@ -285,7 +290,7 @@ async function processWebhook(organizationId: string, payload: any) {
           msgLines.push(`📌 *${[classe, orgao].filter(Boolean).join(" — ")}*`);
         }
         msgLines.push(`📂 Processo: ${processoFormatado}`);
-        msgLines.push(``, `📋 *O que aconteceu:*`, interpretation.mensagemCliente);
+        msgLines.push(``, `📋 *O que aconteceu:*`, mensagemCliente);
 
         if (isUrgent) {
           const fmt = dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });

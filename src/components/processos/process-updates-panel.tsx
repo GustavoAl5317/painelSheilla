@@ -31,6 +31,10 @@ const sourceLabel: Record<string, { label: string; color: string }> = {
   TRAMITACAO_INTELIGENTE: { label: "Tramitação", color: "text-orange-600 bg-orange-50" },
 };
 
+function stripMarkdown(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -162,9 +166,10 @@ export function ProcessUpdatesPanel({ processId, processNumber }: Props) {
               {entries.map((entry) => {
                 const src = sourceLabel[entry.source] ?? { label: entry.source, color: "text-gray-500 bg-gray-100" };
                 const LIMIT = 300;
-                const isLong = entry.content.length > LIMIT;
+                const clean = stripMarkdown(entry.content);
+                const isLong = clean.length > LIMIT;
                 const expanded = expandedIds.has(entry.id);
-                const displayed = isLong && !expanded ? entry.content.slice(0, LIMIT) + "…" : entry.content;
+                const displayed = isLong && !expanded ? clean.slice(0, LIMIT) + "…" : clean;
                 return (
                   <div key={entry.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5">
                     <div className="flex items-center justify-between gap-2 mb-2">
