@@ -218,10 +218,14 @@ export async function processIncomingMessage(
           },
         },
       });
+      const sourceLabel: Record<string, string> = { DJEN: "DJEN", PJE: "PJe", COMMENT: "Advogado", SYSTEM: "Sistema" };
       const cardLines = caseCard?.entries.length
         ? caseCard.entries
-            .map((e: any) => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
-            .join("\n")
+            .map((e: any) => {
+              const tag = sourceLabel[e.source as string] ?? e.source;
+              return `[${tag} · ${new Date(e.createdAt).toLocaleDateString("pt-BR")}] ${e.content}`;
+            })
+            .join("\n---\n")
         : null;
 
       clientContext = [
@@ -233,8 +237,8 @@ export async function processIncomingMessage(
           ? `\nProcessos ativos:\n${processLines}`
           : "\nNenhum processo ativo cadastrado.",
         cardLines
-          ? `\nInformações do escritório:\n${cardLines}`
-          : "",
+          ? `\nHistórico de movimentações e atualizações do processo (USE ESTES DADOS para responder perguntas sobre andamento, situação ou movimentações):\n${cardLines}`
+          : "\nNenhuma movimentação registrada no card do processo ainda.",
       ].filter(Boolean).join("\n");
     }
   }
