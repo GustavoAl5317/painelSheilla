@@ -231,6 +231,7 @@ export async function processIncomingMessage(
       clientContext = [
         `Nome: ${client.name}`,
         client.cpf ? `CPF: ${client.cpf}` : "",
+        (client as any).email ? `E-mail: ${(client as any).email}` : "",
         client.phone ? `Telefone: ${client.phone}` : "",
         (client as any).processNumber ? `Número do processo: ${(client as any).processNumber}` : "",
         client.processes.length > 0
