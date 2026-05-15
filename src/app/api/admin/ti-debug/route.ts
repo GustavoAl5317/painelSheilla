@@ -8,82 +8,38 @@ const BASE = "https://planilha.tramitacaointeligente.com.br";
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json();
 
-  const jsonHeaders = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Origin": BASE,
-    "Referer": `${BASE}/`,
-  };
-
+  const base64 = Buffer.from(`${email}:${password}`).toString("base64");
   const results: Record<string, unknown>[] = [];
 
-  // 1. Segue o redirect de GET /api/v1 para descobrir a versão real
-  try {
-    const res = await fetch(`${BASE}/api/v1`, { headers: { Accept: "application/json" }, redirect: "follow" });
-    const text = await res.text().catch(() => "");
-    results.push({
-      label: "GET /api/v1 (follow redirect)",
-      finalUrl: res.url,
-      status: res.status,
-      body: text.slice(0, 300),
-    });
-  } catch (err) {
-    results.push({ label: "GET /api/v1 (follow redirect)", error: (err as Error).message });
-  }
+  const authAttempts = [
+    { label: "Basic auth", headers: { Authorization: `Basic ${base64}` } },
+    { label: "Bearer email:password base64", headers: { Authorization: `Bearer ${base64}` } },
+    { label: "Token token=email:password", headers: { Authorization: `Token token=${base64}` } },
+    { label: "X-User-Email + X-User-Token (password)", headers: { "X-User-Email": email, "X-User-Token": password } },
+    { label: "X-Api-Key = password", headers: { "X-Api-Key": password } },
+    { label: "query ?user_email&user_token (password as token)", url: `/api/v1/clientes?user_email=${encodeURIComponent(email)}&user_token=${encodeURIComponent(password)}`, headers: {} },
+    { label: "query ?email&password", url: `/api/v1/clientes?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`, headers: {} },
+  ];
 
-  // 2. Tenta versões de API diferentes com auth
-  const versions = ["v2", "v3", "v4"];
-  const authPaths = ["auth/sign_in", "sessions", "login", "users/sign_in"];
-
-  for (const v of versions) {
-    for (const path of authPaths) {
-      const url = `${BASE}/api/${v}/${path}`;
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({ email, password }),
-          redirect: "manual",
-        });
-        const text = await res.text().catch(() => "");
-        const isCf = text.includes("Just a moment") || res.headers.get("cf-mitigated") === "challenge";
-        let body: unknown;
-        try { body = JSON.parse(text); } catch { body = isCf ? "[CF block]" : text.slice(0, 200); }
-        if (res.status !== 404 || !isCf) {
-          results.push({ label: `POST /api/${v}/${path}`, status: res.status, cfBlocked: isCf, xRuntime: res.headers.get("x-runtime"), body });
-        }
-      } catch (err) {
-        results.push({ label: `POST /api/${v}/${path}`, error: (err as Error).message });
-      }
+  for (const attempt of authAttempts) {
+    const url = `${BASE}${(attempt as { url?: string }).url ?? "/api/v1/clientes"}`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0",
+          ...attempt.headers,
+        },
+        redirect: "manual",
+      });
+      const text = await res.text().catch(() => "");
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { body = text.slice(0, 300); }
+      results.push({ label: attempt.label, status: res.status, xRuntime: res.headers.get("x-runtime"), body });
+    } catch (err) {
+      results.push({ label: attempt.label, error: (err as Error).message });
     }
-  }
-
-  // 3. Descobre rotas Rails via GET em recursos conhecidos (clientes, processos)
-  const resources = ["clientes", "customers", "processos", "processes", "users"];
-  for (const r of resources) {
-    for (const v of ["v1", "v2", "v3"]) {
-      const url = `${BASE}/api/${v}/${r}`;
-      try {
-        const res = await fetch(url, { headers: jsonHeaders, redirect: "manual" });
-        const text = await res.text().catch(() => "");
-        const isCf = text.includes("Just a moment") || res.headers.get("cf-mitigated") === "challenge";
-        if (res.status !== 404) {
-          let body: unknown;
-          try { body = JSON.parse(text); } catch { body = isCf ? "[CF block]" : text.slice(0, 200); }
-          results.push({ label: `GET /api/${v}/${r}`, status: res.status, cfBlocked: isCf, xRuntime: res.headers.get("x-runtime"), body });
-        }
-      } catch { /* ignora 404s */ }
-    }
-  }
-
-  // 4. Tenta a raiz /api/ para ver o que existe
-  try {
-    const res = await fetch(`${BASE}/api`, { headers: { Accept: "application/json" }, redirect: "manual" });
-    const text = await res.text().catch(() => "");
-    results.push({ label: "GET /api", status: res.status, location: res.headers.get("location"), body: text.slice(0, 200) });
-  } catch (err) {
-    results.push({ label: "GET /api", error: (err as Error).message });
   }
 
   return NextResponse.json({ results });
