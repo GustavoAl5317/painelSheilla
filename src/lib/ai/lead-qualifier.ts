@@ -235,14 +235,17 @@ export async function processIncomingMessage(
   const nameLooksPhone =
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
-  // ── Menu programático na primeira mensagem da conversa ───────────────────
+  // ── Menu programático para contato conhecido ─────────────────────────────
   // Dispara quando é cliente cadastrado (clientId) OU lead com nome real já
-  // conhecido (nameLooksPhone = false). Gera o menu direto, sem passar pela
-  // IA, para que o prompt base do banco não sobrescreva o comportamento.
-  const isFirstAiResponse = !hadAiReply && !operatorIntervened;
+  // conhecido (!nameLooksPhone). Usa a presença do texto "1. Previdenciário"
+  // no histórico para saber se o menu já foi exibido — assim funciona mesmo
+  // quando a IA já respondeu antes (sem o menu correto).
+  const menuAlreadyShown = chronological.some(
+    m => m.direction === "OUTBOUND" && m.isAI && m.content.includes("1. Previdenci")
+  );
   const isKnownContact = !!(conversation.clientId && clientContext) || !nameLooksPhone;
 
-  if (isFirstAiResponse && isKnownContact) {
+  if (!menuAlreadyShown && !operatorIntervened && isKnownContact) {
     let firstName = "";
     if (clientContext) {
       const nameMatch = clientContext.match(/^Nome:\s*(.+)/m);
