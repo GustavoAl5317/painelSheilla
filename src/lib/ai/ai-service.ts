@@ -26,7 +26,6 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
-/** @deprecated Mantido apenas para compatibilidade de tipos — não é mais usado na lógica. */
 export type LeadChatMode = “cold” | “established”;
 
 /** Quando a IA não tem contexto suficiente (ex.: histórico antigo fora do painel) — não pedir nome/tipo de caso. */
