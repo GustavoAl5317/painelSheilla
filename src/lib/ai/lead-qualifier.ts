@@ -2,8 +2,47 @@ import { prisma } from "@/lib/prisma";
 import { resolveCredential } from "@/lib/credentials";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { runAIChat } from "./ai-service";
-import type { AIMessage, LeadChatMode } from "./ai-service";
+import type { AIMessage } from "./ai-service";
 import { isPhoneBlocked } from "@/lib/blocked-phones";
+import { SHEILA_PROMPT, SHEILA_PROMPT_NAME } from "./default-prompt";
+
+// Cache para evitar update no banco a cada mensagem (TTL de 10 min por org)
+const promptSyncCache = new Map<string, number>();
+const PROMPT_SYNC_TTL = 10 * 60 * 1000;
+
+async function syncDefaultPrompt(organizationId: string): Promise<void> {
+  const now = Date.now();
+  const last = promptSyncCache.get(organizationId) ?? 0;
+  if (now - last < PROMPT_SYNC_TTL) return;
+  promptSyncCache.set(organizationId, now);
+
+  const existing = await prisma.promptTemplate.findFirst({
+    where: { organizationId, name: SHEILA_PROMPT_NAME },
+    select: { id: true, content: true },
+  });
+
+  if (!existing) {
+    await prisma.promptTemplate.updateMany({
+      where: { organizationId, isDefault: true },
+      data: { isDefault: false },
+    });
+    await prisma.promptTemplate.create({
+      data: {
+        name: SHEILA_PROMPT_NAME,
+        description: "Prompt completo de triagem para leads via WhatsApp. Atua nas áreas Trabalhista, Acidente de Trabalho e Previdenciário/INSS.",
+        content: SHEILA_PROMPT,
+        isSystem: false,
+        isDefault: true,
+        organizationId,
+      },
+    });
+  } else if (existing.content !== SHEILA_PROMPT) {
+    await prisma.promptTemplate.update({
+      where: { id: existing.id },
+      data: { content: SHEILA_PROMPT },
+    });
+  }
+}
 
 async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId } });
@@ -101,6 +140,9 @@ export async function processIncomingMessage(
   hasMedia = false,
   currentMessageId?: string
 ) {
+  // Garante que o prompt padrão no banco está atualizado (máx 1x por org a cada 10 min)
+  syncDefaultPrompt(organizationId).catch(() => {});
+
   const convInclude = {
     messages: { orderBy: { createdAt: "desc" as const }, take: 60 },
     lead: { include: { stage: true } },
@@ -266,29 +308,9 @@ export async function processIncomingMessage(
     };
   });
 
-  const inbounds = chronological.filter(m => m.direction === "INBOUND");
-  const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
-  const allInboundText = inbounds.map(m => m.content).join("\n");
   const lead = conversation.lead;
   const nameLooksPhone =
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
-
-  const textSuggestsOngoing = (t: string) =>
-    /dra\.?|doutor|doutora|dra\s|doutor\s|sra\.?|sr\.?|oab|quando\s+o|valor|pagamento|processo|honor|já\s|retorno|acordo|escritór|escrit|advogad|parcela|me\s+lig|falar com/i.test(
-      t
-    );
-
-  const leadMode: LeadChatMode =
-    hadAiReply ||
-    (lead && !nameLooksPhone) ||
-    textSuggestsOngoing(userMessage) ||
-    textSuggestsOngoing(allInboundText)
-      ? "established"
-      : "cold";
-
-  // Os cenários de "semContexto" e "conversaJaRolando" agora são tratados
-  // diretamente pela IA, que usará o prompt do sistema para avisar que é a
-  // assistente virtual e que não tem acesso ao histórico anterior.
 
   // Nome a usar na saudação: prioridade Cliente cadastrado > Lead (se não for telefone)
   let contactName: string | undefined;
@@ -305,7 +327,6 @@ export async function processIncomingMessage(
 
   const result = await runAIChat(config, history, userMessage, {
     clientContext,
-    leadMode,
     hasMedia,
     operatorIntervened,
     contactName,

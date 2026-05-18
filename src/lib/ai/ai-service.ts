@@ -26,18 +26,12 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
-/** Lead frio (primeiro contato) vs conversa que já vem de um diálogo (WhatsApp com histórico / retorno). */
-export type LeadChatMode = "cold" | "established";
+/** @deprecated Mantido apenas para compatibilidade de tipos — não é mais usado na lógica. */
+export type LeadChatMode = “cold” | “established”;
 
 /** Quando a IA não tem contexto suficiente (ex.: histórico antigo fora do painel) — não pedir nome/tipo de caso. */
 export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
-  "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
-
-function userMessageSuggestsOngoingOrReturn(t: string): boolean {
-  return /dra\.?|doutor|doutora|document|assin|enviei|mandei|pdf|scan|finalizei|carteira|trabalh|processo|retorno|escritóri|escritori|prazo|falta\s+alg|bom dia|boa tarde|boa noite|obrigad/i.test(
-    t
-  );
-}
+  “Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.”;
 
 /** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
 function replySoundsLikeContextConfusion(assistantReply: string): boolean {
@@ -53,17 +47,13 @@ function replySoundsLikeContextConfusion(assistantReply: string): boolean {
 }
 
 export function shouldUseUnclearContextFallbackReply(
-  leadMode: LeadChatMode,
+  _leadMode: LeadChatMode,
   clientContext: string | undefined,
-  userMessage: string,
+  _userMessage: string,
   assistantReply: string
 ): boolean {
-  // Cliente identificado: a IA tem dados reais — nunca sobrescreve com fallback genérico
   if (clientContext) return false;
-  if (!replySoundsLikeContextConfusion(assistantReply)) return false;
-  if (leadMode === "established") return true;
-  if (userMessageSuggestsOngoingOrReturn(userMessage)) return true;
-  return false;
+  return replySoundsLikeContextConfusion(assistantReply);
 }
 
 export async function runAIChat(
@@ -112,7 +102,7 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false, contactName?: string): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, _leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false, contactName?: string): string {
   const handoffNoContextRule = `
 REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 - O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
@@ -197,35 +187,22 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
-    : leadMode === "established"
-      ? `\nINSTRUÇÕES OBRIGATÓRIAS (conversa em andamento — NÃO cadastrado):
-- Analise o histórico e identifique quais etapas do FLUXO ainda NÃO foram concluídas (nome, e-mail, área/menu, situação).
-- Retome exatamente pela próxima etapa pendente. NÃO repita etapas já concluídas. NÃO mostre o menu de 4 opções antes de ter nome e e-mail.
-- Se a mensagem for claramente retorno operacional (envio de documentos, assinaturas, "finalizei", agradecimento à Dra.) e o histórico NÃO mostra o encadeamento, NÃO peça nome completo nem "novo caso ou anterior". Use APENAS: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e [TRANSFERIR_PARA_HUMANO].
-- Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça em UMA frase e redirecione imediatamente para a próxima etapa pendente da triagem.
-- NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na triagem.
-- Ao concluir todas as etapas, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
-- NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
-- NUNCA pergunte se o cliente já tem advogado.
-- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
-- Responda em português brasileiro, empático e profissional.`
-      : `\nINSTRUÇÕES OBRIGATÓRIAS (primeiro contato — NÃO cadastrado — triagem inicial):
-- Siga o FLUXO uma etapa por vez: NOME → E-MAIL → MENU DE ÁREAS → SITUAÇÃO. Nunca pule etapas nem junte perguntas.
-- PASSO 1 (NOME): Se ainda não tem o nome completo, pergunte antes de qualquer outra coisa.
-- PASSO 2 (E-MAIL): Quando tiver o nome, peça o e-mail.
-- PASSO 3 (MENU): Quando tiver nome E e-mail, apresente EXATAMENTE este menu:\n"Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
-- PASSO 4 (SITUAÇÃO): Após a escolha, peça a situação conforme o módulo (Previdenciário ou Trabalhista). Se for opção 3, peça o CPF para localizar o processo.
-- Se a pessoa estiver divagando sobre assuntos pessoais sem relação com o caso, reconheça brevemente e redirecione com firmeza e cordialidade para a próxima etapa da triagem.
-- NUNCA fique apenas validando ou ecoando o que a pessoa disse sem avançar na coleta de dados.
+    : `\nINSTRUÇÕES OBRIGATÓRIAS (NÃO cadastrado — triagem):
+- Analise o histórico desta conversa e identifique quais etapas já foram concluídas: nome completo, e-mail, escolha de área, situação.
+- Continue EXATAMENTE da próxima etapa pendente. Nunca repita etapas já concluídas. Nunca pule etapas.
+- ETAPA 1 — NOME: Se não há nome completo no histórico, pergunte APENAS: "Olá! Qual é o seu nome completo?" Não diga "como posso ajudar", não apresente menu. Apenas peça o nome — isso vale independentemente do que o cliente disse.
+- ETAPA 2 — E-MAIL: Se já tem o nome mas não tem e-mail, peça o e-mail.
+- ETAPA 3 — MENU: Se já tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
+- ETAPA 4 — SITUAÇÃO: Após a escolha, peça a situação conforme o módulo. Se for opção 3, peça o CPF para localizar o processo.
+- Se a pessoa divagar, reconheça em UMA frase e redirecione para a próxima etapa pendente.
 - Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
 - NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se enviados voluntariamente, apenas agradeça.
 - NUNCA pergunte se o cliente já tem advogado.
 - NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários.
-- Se o lead solicitar falar com humano ou advogado, inclua exatamente [TRANSFERIR_PARA_HUMANO] no final.
-- Responda sempre em português brasileiro, de forma empática e profissional.`;
+- Se o lead solicitar falar com humano ou advogado, inclua [TRANSFERIR_PARA_HUMANO] no final.
+- Responda em português brasileiro, de forma empática e profissional.`;
 
   const operatorNote = operatorIntervened
     ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
