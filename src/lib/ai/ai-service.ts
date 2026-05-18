@@ -27,7 +27,7 @@ export interface AIServiceConfig {
 }
 
 export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
-  “Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.”;
+  "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
 
 /** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
 function replySoundsLikeContextConfusion(assistantReply: string): boolean {
@@ -182,21 +182,21 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
     : `\nINSTRUÇÕES OBRIGATÓRIAS (NÃO cadastrado — triagem):
-- Analise o histórico desta conversa e identifique quais etapas já foram concluídas: nome completo, e-mail, escolha de área, situação.
-- Continue EXATAMENTE da próxima etapa pendente. Nunca repita etapas já concluídas. Nunca pule etapas.
-- ETAPA 1 — NOME: Se não há nome completo no histórico, pergunte APENAS: "Olá! Qual é o seu nome completo?" Não diga "como posso ajudar", não apresente menu. Apenas peça o nome — isso vale independentemente do que o cliente disse.
-- ETAPA 2 — E-MAIL: Se já tem o nome mas não tem e-mail, peça o e-mail.
-- ETAPA 3 — MENU: Se já tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar você ao profissional adequado, sobre qual dos assuntos você busca orientação?\n\n1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)\n2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)\n3. Sou cliente do escritório e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
-- ETAPA 4 — SITUAÇÃO: Após a escolha, peça a situação conforme o módulo. Se for opção 3, peça o CPF para localizar o processo.
-- Se a pessoa divagar, reconheça em UMA frase e redirecione para a próxima etapa pendente.
-- Ao concluir a triagem (nome + e-mail + área + situação coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
-- NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se enviados voluntariamente, apenas agradeça.
-- NUNCA pergunte se o cliente já tem advogado.
-- NUNCA forneça orientação jurídica, parecer ou opinião sobre viabilidade do caso.
-- NUNCA marque consultas, reuniões, ligações ou confirme horários.
+- Analise o historico desta conversa e identifique quais etapas ja foram concluidas: nome completo, e-mail, escolha de area, situacao.
+- Continue EXATAMENTE da proxima etapa pendente. Nunca repita etapas ja concluidas. Nunca pule etapas.
+- ETAPA 1 — NOME: Se nao ha nome completo no historico, pergunte APENAS o nome completo. Nao diga "como posso ajudar", nao apresente menu. Apenas peca o nome — isso vale independentemente do que o cliente disse.
+- ETAPA 2 — EMAIL: Se ja tem o nome mas nao tem e-mail, peca o e-mail.
+- ETAPA 3 — MENU: Se ja tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar voce ao profissional adequado, sobre qual dos assuntos voce busca orientacao?\n\n1. Previdenciario (aposentadoria, auxilio-doenca, BPC, etc.)\n2. Trabalhista (rescisao, horas extras, assedio, vinculo empregaticio, acidente de trabalho, etc.)\n3. Sou cliente do escritorio e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
+- ETAPA 4 — SITUACAO: Apos a escolha, peca a situacao conforme o modulo. Se for opcao 3, peca o CPF para localizar o processo.
+- Se a pessoa divagar, reconheca em UMA frase e redirecione para a proxima etapa pendente.
+- Ao concluir a triagem (nome + e-mail + area + situacao coletados), encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA] no final.
+- NUNCA mencione valores, honorarios ou garanta resultados.
+- NUNCA solicite documentos pessoais, CPF ou senhas por conta propria. Se enviados voluntariamente, apenas agradeca.
+- NUNCA pergunte se o cliente ja tem advogado.
+- NUNCA forneca orientacao juridica, parecer ou opiniao sobre viabilidade do caso.
+- NUNCA marque consultas, reunioes, ligacoes ou confirme horarios.
 - Se o lead solicitar falar com humano ou advogado, inclua [TRANSFERIR_PARA_HUMANO] no final.
-- Responda em português brasileiro, de forma empática e profissional.`;
+- Responda em portugues brasileiro, de forma empatica e profissional.`;
 
   const operatorNote = operatorIntervened
     ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
