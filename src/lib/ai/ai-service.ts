@@ -26,9 +26,6 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
-export type LeadChatMode = “cold” | “established”;
-
-/** Quando a IA não tem contexto suficiente (ex.: histórico antigo fora do painel) — não pedir nome/tipo de caso. */
 export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
   “Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.”;
 
@@ -46,9 +43,7 @@ function replySoundsLikeContextConfusion(assistantReply: string): boolean {
 }
 
 export function shouldUseUnclearContextFallbackReply(
-  _leadMode: LeadChatMode,
   clientContext: string | undefined,
-  _userMessage: string,
   assistantReply: string
 ): boolean {
   if (clientContext) return false;
@@ -59,11 +54,11 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; leadMode?: LeadChatMode; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string }
+  options?: { clientContext?: string; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string }
 ): Promise<AIResponse> {
-  const { clientContext, leadMode = "cold", hasMedia = false, operatorIntervened = false, contactName } = options ?? {};
+  const { clientContext, hasMedia = false, operatorIntervened = false, contactName } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, leadMode, hasMedia, operatorIntervened, contactName) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, hasMedia, operatorIntervened, contactName) },
     ...history,
     { role: "user", content: userMessage },
   ];
@@ -88,7 +83,7 @@ export async function runAIChat(
     .trim();
 
   let finalShouldTransfer = shouldTransfer;
-  if (shouldUseUnclearContextFallbackReply(leadMode, clientContext, userMessage, cleanContent)) {
+  if (shouldUseUnclearContextFallbackReply(clientContext, cleanContent)) {
     cleanContent = UNCLEAR_CONTEXT_FALLBACK_REPLY;
     finalShouldTransfer = true;
   }
@@ -101,7 +96,7 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, _leadMode: LeadChatMode, hasMedia = false, operatorIntervened = false, contactName?: string): string {
+function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
   const handoffNoContextRule = `
 REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
 - O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
