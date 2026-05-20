@@ -139,108 +139,23 @@ export async function runAIChat(
 }
 
 function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
-  const handoffNoContextRule = `
-REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
-- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
-- Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
+  const firstName = extractFirstNameFromContact(contactName);
 
-  const firstNameForGreeting = (() => {
-    const raw = contactName?.trim();
-    if (!raw) return "";
-    if (/^\+?[\d\s().-]{6,}$/.test(raw.replace(/\s/g, ""))) return "";
-    return raw.split(/\s+/)[0];
-  })();
+  const contextBlock = clientContext
+    ? `\n\n# DADOS DO CLIENTE (cadastrado)\n${clientContext}`
+    : firstName
+      ? `\n\n# CONTEXTO\nCliente NÃO cadastrado. Nome conhecido pelo contato do WhatsApp: ${firstName}. Considere o Passo 1 do fluxo já resolvido e prossiga para o Passo 2B (pedir e-mail).`
+      : `\n\n# CONTEXTO\nCliente NÃO cadastrado e sem nome conhecido. Comece pelo Passo 2C do fluxo (pedir nome completo).`;
 
-  const greetingTarget = firstNameForGreeting ? `${firstNameForGreeting}, tudo bem?` : "tudo bem?";
-
-  const menuGreetingRule = clientContext
-    ? `
-SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
-- Sempre que o cliente iniciar a conversa, cumprimentar ("Olá", "Oi", "Bom dia", "Boa tarde", "Boa noite", "Tudo bem?"), perguntar "como pode ajudar" / "quais são as opções", ou enviar mensagem sem indicar claramente o motivo, copie e cole LITERALMENTE a saudação abaixo, sem alterar uma única palavra, sem adicionar nada antes ou depois, sem perguntar nome, e-mail, CPF ou número de processo:
-
-"Olá ${greetingTarget} Selecione uma das opções abaixo para que eu possa lhe direcionar:
-
-1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)
-2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)
-3. Sou cliente do escritório e gostaria de saber o andamento do meu processo
-4. Outros assuntos"
-
-- NUNCA pule esse menu na primeira interação. NUNCA pergunte CPF ou número de processo — você já tem o cadastro dele.
-- NUNCA parafraseie, resuma ou substitua este texto por variações como "Como posso ajudá-lo?" — copie EXATAMENTE.
-- Só avance para resposta sobre processo APÓS o cliente escolher a opção 3.
-- Se o cliente cumprimentar de novo no meio da conversa ("Olá", "Oi") e o assunto anterior já terminou, repita o menu.
-- Se o cliente pedir explicitamente "quais são as opções" ou "o que você faz", repita o menu.`
+  const mediaBlock = hasMedia
+    ? `\n\n# MÍDIA RECEBIDA\nO cliente enviou imagem ou documento. O conteúdo extraído está entre colchetes na mensagem abaixo — use-o para responder. Se for comprovante de pagamento/transferência, aplique a resposta exata definida em "RESPOSTAS EXATAS PARA SITUAÇÕES ESPECIAIS".`
     : "";
 
-  const clientSection = clientContext
-    ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nREGRA OBRIGATÓRIA PARA CLIENTES CADASTRADOS:
-- Este cliente JÁ ESTÁ CADASTRADO. NUNCA peça CPF nem número de processo.
-- Use o PRIMEIRO NOME do cliente (do campo "Nome" acima) na saudação do menu.
-- SOMENTE quando o cliente escolher a opção 3 do menu (andamento do processo), responda usando os dados da seção "Histórico de movimentações e atualizações do processo" acima.
-- NUNCA invente, deduza ou parafraseie movimentações que não estejam EXPLICITAMENTE listadas no histórico acima. Cite a movimentação como está registrada.
-- Se o histórico estiver vazio ("Nenhuma movimentação registrada"), responda: "Não tenho movimentações registradas no sistema ainda. A equipe do escritório poderá verificar isso para você." e inclua [TRANSFERIR_PARA_HUMANO] no final.
-- NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
-- Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
-- Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.${handoffNoContextRule}`;
-
-  const mediaInstruction = hasMedia
-    ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
+  const operatorBlock = operatorIntervened
+    ? `\n\n# ATENDIMENTO HÍBRIDO\nUm atendente humano já respondeu esta conversa antes. Não retome o que ele tratou. Continue a partir da última mensagem do cliente.`
     : "";
 
-  const antiHallucination = `
-REGRA DE RITMO — ABSOLUTA:
-- Envie APENAS UMA mensagem curta por vez. Faça UMA pergunta, aguarde a resposta, depois avance.
-- NUNCA faça duas perguntas na mesma mensagem.
-- NUNCA antecipe respostas do cliente nem pule etapas.
-- Máximo 3 frases por mensagem.
-
-REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
-- NUNCA invente, suponha ou deduza informações que o cliente não disse explicitamente nesta conversa.
-- NUNCA confirme, repita ou valide dados (nome, processo, benefício, datas, valores, decisões) que não estejam no histórico desta conversa ou nos dados do cliente acima.
-- Se não sabe algo, diga exatamente: "Não tenho essa informação. A equipe do escritório poderá verificar isso para você."
-- NUNCA complete frases do cliente com suposições. Pergunte se precisar confirmar.
-- NUNCA mencione leis, artigos, jurisprudências ou prazos específicos — isso é parecer jurídico.
-- NUNCA pergunte se há urgência, se o caso é urgente, se precisa com urgência, nem use "urgência", "urgente" ou "rápido" em perguntas ao cliente.
-- NUNCA pergunte sobre prazos processuais, vencimento ou "quanto tempo falta" só para saber se o caso é urgente ou prioritário.
-- Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
-
-REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
-- Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a exata frase: "Este número é exclusivo para atendimentos de clientes, favor encaminhar a proposta ao e-mail sheilaaraujoadv@sheilaaraujoadv.com que será respondido oportunamente." e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
-
-REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "3 - Outros assuntos" ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
-
-  const instructions = clientContext
-    ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
-- Este é um cliente existente do escritório. Trate-o com cordialidade pelo PRIMEIRO NOME do campo "Nome" acima.
-- Na PRIMEIRA mensagem (ou retomada após "Olá"/"Oi"), apresente o menu obrigatório de 4 opções definido em "SAUDAÇÃO INICIAL OBRIGATÓRIA". NUNCA pule essa saudação para responder direto sobre processo.
-- Só responda sobre andamento de processo APÓS o cliente escolher a opção 3.
-- Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
-- NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
-- NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
-- NUNCA mencione valores, honorários ou garanta resultados.
-- NUNCA solicite documentos pessoais, CPF ou senhas por conta própria. Porém, se o cliente enviar esses dados voluntariamente, apenas agradeça e guarde a informação sem dizer que não pode coletar.
-- NUNCA pergunte se o cliente já tem advogado.
-- Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
-- Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
-    : `\nINSTRUCOES OBRIGATORIAS (NAO cadastrado — triagem):
-- Analise o historico e identifique quais etapas ja foram concluidas: nome completo, e-mail, area, situacao.
-- SEMPRE termine sua mensagem com a proxima etapa pendente. NUNCA use "Como posso ajudar?", "Em que posso ajudar?", "Como posso te ajudar?", "Como posso ajuda-lo?" ou qualquer variacao generica em NENHUMA parte da mensagem.
-- ETAPA 1 — NOME: ${firstNameForGreeting ? `O nome do contato do WhatsApp e "${firstNameForGreeting}". Considere esta etapa CONCLUIDA e va diretamente para a ETAPA 2.` : "Se nao ha nome no historico, termine sua mensagem perguntando APENAS o nome completo. Nada mais."}
-- ETAPA 2 — EMAIL: Se ja tem nome mas nao tem e-mail, termine sua mensagem pedindo APENAS o e-mail. Exemplo de abertura: "Ola${firstNameForGreeting ? `, ${firstNameForGreeting}` : ""}! Para registrar o atendimento, pode me informar seu e-mail?"
-- ETAPA 3 — MENU: Se ja tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar voce ao profissional adequado, sobre qual dos assuntos voce busca orientacao?\n\n1. Previdenciario (aposentadoria, auxilio-doenca, BPC, etc.)\n2. Trabalhista (rescisao, horas extras, assedio, vinculo empregaticio, acidente de trabalho, etc.)\n3. Sou cliente do escritorio e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
-- ETAPA 4 — SITUACAO: Apos a escolha, peca a situacao conforme o modulo. Se opcao 3, peca CPF.
-- Qualquer que seja a mensagem do cliente (cumprimento, pergunta, divagacao), SEMPRE termine com a proxima etapa pendente.
-- Ao concluir (nome + e-mail + area + situacao), encerre com mensagem de registro e inclua [TRIAGEM COMPLETA].
-- NUNCA forneca orientacao juridica ou garanta resultados.
-- Se solicitar humano, inclua [TRANSFERIR_PARA_HUMANO] no final.`;
-
-  const operatorNote = operatorIntervened
-    ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
-    : "";
-
-  return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
+  return `${base}${contextBlock}${mediaBlock}${operatorBlock}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────
