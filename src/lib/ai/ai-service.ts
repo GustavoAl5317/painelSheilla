@@ -50,6 +50,36 @@ export function shouldUseUnclearContextFallbackReply(
   return replySoundsLikeContextConfusion(assistantReply);
 }
 
+const GENERIC_HELP_PHRASE_REGEX =
+  /\b(como|em que|no que|onde)\s+(eu\s+)?posso\s+(lhe\s+|te\s+|the\s+)?ajud(a|á)(r|-lo|-la|-los|-las|-lo\(a\))?(\s+hoje)?\??/i;
+
+export function replyContainsGenericHelpPhrase(assistantReply: string): boolean {
+  return GENERIC_HELP_PHRASE_REGEX.test(assistantReply);
+}
+
+function buildRegisteredClientMenu(firstName: string): string {
+  const greeting = firstName ? `Olá ${firstName}, tudo bem?` : "Olá, tudo bem?";
+  return `${greeting} Selecione uma das opções abaixo para que eu possa lhe direcionar:
+
+1. Previdenciário (aposentadoria, auxílio-doença, BPC, etc.)
+2. Trabalhista (rescisão, horas extras, assédio, vínculo empregatício, acidente de trabalho, etc.)
+3. Sou cliente do escritório e gostaria de saber o andamento do meu processo
+4. Outros assuntos`;
+}
+
+function buildEmailRequest(firstName: string): string {
+  return firstName
+    ? `Olá, ${firstName}! Para registrar o atendimento, pode me informar seu e-mail?`
+    : "Olá! Antes de começar, pode me dizer seu nome completo?";
+}
+
+function extractFirstNameFromContact(contactName?: string): string {
+  const raw = contactName?.trim();
+  if (!raw) return "";
+  if (/^\+?[\d\s().-]{6,}$/.test(raw.replace(/\s/g, ""))) return "";
+  return raw.split(/\s+/)[0];
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -86,6 +116,18 @@ export async function runAIChat(
   if (shouldUseUnclearContextFallbackReply(clientContext, cleanContent)) {
     cleanContent = UNCLEAR_CONTEXT_FALLBACK_REPLY;
     finalShouldTransfer = true;
+  } else if (replyContainsGenericHelpPhrase(cleanContent)) {
+    const firstName = extractFirstNameFromContact(contactName);
+    const historyHasEmail = history
+      .filter(m => m.role === "user")
+      .some(m => /[\w.+-]+@[\w-]+\.[\w.-]+/i.test(m.content));
+    if (clientContext) {
+      cleanContent = buildRegisteredClientMenu(firstName);
+    } else if (firstName && !historyHasEmail) {
+      cleanContent = buildEmailRequest(firstName);
+    } else if (!firstName) {
+      cleanContent = "Olá! Antes de começar, pode me dizer seu nome completo?";
+    }
   }
 
   return {
