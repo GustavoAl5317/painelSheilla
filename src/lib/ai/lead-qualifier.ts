@@ -18,7 +18,7 @@ async function syncDefaultPrompt(organizationId: string): Promise<void> {
 
   const existing = await prisma.promptTemplate.findFirst({
     where: { organizationId, name: SHEILA_PROMPT_NAME },
-    select: { id: true, content: true },
+    select: { id: true, content: true, isDefault: true },
   });
 
   if (!existing) {
@@ -36,10 +36,10 @@ async function syncDefaultPrompt(organizationId: string): Promise<void> {
         organizationId,
       },
     });
-  } else if (existing.content !== SHEILA_PROMPT) {
+  } else if (existing.content !== SHEILA_PROMPT || !existing.isDefault) {
     await prisma.promptTemplate.update({
       where: { id: existing.id },
-      data: { content: SHEILA_PROMPT },
+      data: { content: SHEILA_PROMPT, isDefault: true },
     });
   }
 }
@@ -140,8 +140,9 @@ export async function processIncomingMessage(
   hasMedia = false,
   currentMessageId?: string
 ) {
-  // Garante que o prompt padrão no banco está atualizado (máx 1x por org a cada 10 min)
-  syncDefaultPrompt(organizationId).catch(() => {});
+  // Garante que o prompt padrão no banco está atualizado antes de resolver a config de IA.
+  // Usa cache de 10 min — só toca o banco na primeira chamada do período.
+  await syncDefaultPrompt(organizationId).catch(() => {});
 
   const convInclude = {
     messages: { orderBy: { createdAt: "desc" as const }, take: 60 },

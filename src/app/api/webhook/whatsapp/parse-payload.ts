@@ -166,9 +166,11 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     if (!content.trim()) content = str(image.caption) || "[Imagem recebida]";
   }
 
+  // Vídeos são ignorados: a IA não consegue analisar vídeo e o webhook duplicado
+  // causa race condition com as mensagens de texto que chegam junto.
   const video = body.video as { caption?: string; videoUrl?: string } | undefined;
-  if (video?.videoUrl && !content.trim()) {
-    content = str(video.caption) || "[Vídeo recebido]";
+  if (video?.videoUrl || body.type === "video") {
+    return { skip: true, reason: "video_not_supported" };
   }
 
   const doc = body.document as { fileName?: string; documentUrl?: string } | undefined;
