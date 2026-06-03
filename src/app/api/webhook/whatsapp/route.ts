@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
     // Echo da própria IA — escopo: somente mensagens IA na MESMA conversa, janela de 60s.
     // Comandos "#" e "." são checados ANTES para garantir que nunca sejam tratados
     // como echo (mesmo no caso improvável da IA ter enviado esse texto).
-    const isCommand = cmd === "#" || cmd === ".";
+    const isCommand = cmd === ".." || cmd === ".";
     if (!isCommand) {
       const aiEchoWindow = new Date(Date.now() - 60_000);
       const recentAiMessages = await prisma.message.findMany({
@@ -213,9 +213,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "ai_resumed" });
     }
 
-    // "#" ou palavra-chave customizada → pausa IA, não salva nem aparece no chat
+    // ".." ou palavra-chave customizada → pausa IA, não salva nem aparece no chat
     const customKeyword = (aiConfig as any)?.operatorKeyword?.trim();
-    if (cmd === "#" || (customKeyword && cmd.toLowerCase() === customKeyword.toLowerCase())) {
+    if (cmd === ".." || (customKeyword && cmd.toLowerCase() === customKeyword.toLowerCase())) {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: { aiEnabled: false, operatorLastMessageAt: new Date() },

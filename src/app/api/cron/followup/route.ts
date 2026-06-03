@@ -59,13 +59,10 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      // Desativa IA após follow-up — se o cliente responder, operador humano atende
       await prisma.conversation.update({
         where: { id: conv.id },
         data: {
           lastMessageAt: new Date(),
-          aiEnabled: false,
-          status: "TRANSFERRED_TO_HUMAN",
         },
       });
 

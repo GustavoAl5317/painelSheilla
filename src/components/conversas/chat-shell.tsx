@@ -188,6 +188,15 @@ export function ChatShell() {
     }
   }
 
+  async function activateAiForAll() {
+    if (!confirm("Ativar a IA para todas as conversas não bloqueadas?")) return;
+    const res = await fetch("/api/conversations/ai-bulk", { method: "POST", credentials: "include" });
+    if (!res.ok) return;
+    const j: { updated: number } = await res.json();
+    setList((prev) => prev.map((c) => (c.isBlocked ? c : { ...c, aiEnabled: true })));
+    alert(`IA ativada em ${j.updated} conversa(s).`);
+  }
+
   async function setConversationBlocked(blocked: boolean) {
     if (!selectedId) return;
     if (blocked && !confirm("Bloquear este contato? A IA não responderá e as mensagens serão ignoradas.")) return;
@@ -290,6 +299,15 @@ export function ChatShell() {
             title="Atualizar lista"
           >
             <RefreshCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 text-gray-400 hover:text-blue-600"
+            onClick={() => void activateAiForAll()}
+            title="Ativar IA para todas as conversas"
+          >
+            <Bot className="h-4 w-4" />
           </Button>
         </div>
 
