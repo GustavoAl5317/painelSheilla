@@ -326,7 +326,7 @@ export async function processIncomingMessage(
     contactName = lead.name;
   }
 
-  const result = await runAIChat(config, history, userMessage, {
+  let result = await runAIChat(config, history, userMessage, {
     clientContext,
     hasMedia,
     operatorIntervened,
