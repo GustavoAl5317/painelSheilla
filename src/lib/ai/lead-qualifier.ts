@@ -417,5 +417,13 @@ export async function processIncomingMessage(
     });
   }
 
+  // Remove prefixo "[Atendente humano]:" caso a IA copie o formato do histórico
+  if (result?.content) {
+    result = {
+      ...result,
+      content: result.content.replace(/^\[Atendente humano\]:\s*/i, "").trimStart(),
+    };
+  }
+
   return result;
 }
