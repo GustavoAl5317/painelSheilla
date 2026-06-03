@@ -184,22 +184,27 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
-    // Echo da própria IA — escopo: somente mensagens IA na MESMA conversa, janela de 60s.
-    // Comandos "#" e "." são checados ANTES para garantir que nunca sejam tratados
-    // como echo (mesmo no caso improvável da IA ter enviado esse texto).
+    // Detecta echo: Z-API devolve como fromMe=true qualquer mensagem enviada pelo número
+    // conectado (IA ou operador). Se a mensagem já está salva como OUTBOUND nos últimos
+    // 3 minutos, é echo — ignora sem tocar no aiEnabled.
+    // Comandos ".." e "." são verificados ANTES para nunca serem tratados como echo.
     const isCommand = cmd === ".." || cmd === ".";
     if (!isCommand) {
-      const aiEchoWindow = new Date(Date.now() - 60_000);
-      const recentAiMessages = await prisma.message.findMany({
-        where: { conversationId: conversation.id, isAI: true, createdAt: { gte: aiEchoWindow } },
+      const echoWindow = new Date(Date.now() - 3 * 60_000);
+      const recentOutbound = await prisma.message.findMany({
+        where: { conversationId: conversation.id, direction: "OUTBOUND", createdAt: { gte: echoWindow } },
         select: { content: true },
       });
-      const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim();
+      const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
       const normalizedIncoming = normalizeMsg(messageContent);
-      const isAiEcho = recentAiMessages.some(m => normalizeMsg(m.content) === normalizedIncoming);
-      if (isAiEcho) {
-        console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
-        return NextResponse.json({ ok: true, ignored: "ai_echo" });
+      // Aceita match parcial (primeiros 80 chars) para tolerar truncamento do Z-API
+      const isEcho = recentOutbound.some(m => {
+        const n = normalizeMsg(m.content);
+        return n === normalizedIncoming || n.startsWith(normalizedIncoming.slice(0, 80)) || normalizedIncoming.startsWith(n.slice(0, 80));
+      });
+      if (isEcho) {
+        console.log(`[webhook] echo outbound ignorado (conv=${conversation.id})`);
+        return NextResponse.json({ ok: true, ignored: "outbound_echo" });
       }
     }
 
