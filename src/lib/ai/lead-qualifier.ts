@@ -297,11 +297,13 @@ export async function processIncomingMessage(
   // Detecta se o operador humano interveio (mensagem OUTBOUND não gerada pela IA)
   const operatorIntervened = priorMessages.some(m => m.direction === "OUTBOUND" && !m.isAI);
 
-  // Monta histórico completo. Mensagens do operador humano entram como "assistant" mas com
-  // prefixo "[Atendente humano]" para a IA não confundir com respostas dela mesma.
+  // Monta histórico completo.
+  // Mensagens da IA → role "assistant" (sem prefixo) — são as respostas da própria IA.
+  // Mensagens do operador humano → role "assistant" com prefixo bem explícito para que a
+  // IA saiba que NÃO foi ela que escreveu, e não tente continuar ou se apropriar desse conteúdo.
   const history: AIMessage[] = priorMessages.map(m => {
     if (m.direction === "OUTBOUND" && !m.isAI) {
-      return { role: "assistant" as const, content: `[Atendente humano]: ${m.content}` };
+      return { role: "assistant" as const, content: `⚠️ [MENSAGEM ENVIADA PELA DRA. SHEILA — NÃO FOI VOCÊ QUE ESCREVEU ISSO]: ${m.content}` };
     }
     return {
       role: m.direction === "INBOUND" ? "user" as const : "assistant" as const,
@@ -417,11 +419,14 @@ export async function processIncomingMessage(
     });
   }
 
-  // Remove prefixo "[Atendente humano]:" caso a IA copie o formato do histórico
+  // Remove prefixos internos caso a IA copie o formato do histórico na resposta
   if (result?.content) {
     result = {
       ...result,
-      content: result.content.replace(/^\[Atendente humano\]:\s*/i, "").trimStart(),
+      content: result.content
+        .replace(/^⚠️\s*\[MENSAGEM ENVIADA PELA DRA\. SHEILA[^\]]*\]:\s*/i, "")
+        .replace(/^\[Atendente humano\]:\s*/i, "")
+        .trimStart(),
     };
   }
 

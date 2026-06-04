@@ -197,7 +197,12 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se solicitar humano, inclua [TRANSFERIR_PARA_HUMANO] no final.`;
 
   const operatorNote = operatorIntervened
-    ? "\n\nNOTA IMPORTANTE: Um atendente humano do escritório já respondeu esta conversa anteriormente. Não repita nem retome o que o humano tratou. Continue normalmente a partir da última mensagem do cliente."
+    ? `\n\nREGRA CRÍTICA — MENSAGENS DA DRA. SHEILA NO HISTÓRICO:
+- Algumas mensagens anteriores nesta conversa estão marcadas com ⚠️ [MENSAGEM ENVIADA PELA DRA. SHEILA — NÃO FOI VOCÊ QUE ESCREVEU ISSO].
+- Essas mensagens foram escritas por uma PESSOA HUMANA (a Dra. Sheila ou equipe). VOCÊ NÃO AS ESCREVEU.
+- NUNCA afirme que disse algo que está nessas mensagens. NUNCA continue o raciocínio dessas mensagens como se fossem suas.
+- Analise o que o cliente respondeu DEPOIS dessas mensagens e continue a triagem normalmente a partir daí.
+- Se o humano já coletou alguma informação (nome, e-mail, área), considere essa informação como disponível e não repita a pergunta.`
     : "";
 
   return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
