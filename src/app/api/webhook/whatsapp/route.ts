@@ -237,16 +237,27 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Transcreve áudio / analisa mídia (somente mensagens do cliente) ─────────
+  // aiMessageContent é o que vai para a IA — pode diferir de messageContent (salvo no
+  // banco/exibido no painel) para nunca deixar a IA ver/ecoar o placeholder "[Áudio recebido]".
+  let aiMessageContent = messageContent;
   if (!parsed.fromMe) {
     if (messageType === "AUDIO" && audioUrl && openaiKey) {
       const transcription = await transcribeAudio(audioUrl, openaiKey);
-      if (transcription) messageContent = transcription;
+      if (transcription) {
+        messageContent = transcription;
+        aiMessageContent = transcription;
+      } else {
+        aiMessageContent = "[O cliente enviou um áudio, mas não foi possível transcrevê-lo automaticamente. Peça gentilmente para o cliente repetir a mensagem por escrito.]";
+      }
+    } else if (messageType === "AUDIO") {
+      aiMessageContent = "[O cliente enviou um áudio, mas a transcrição automática não está disponível. Peça gentilmente para o cliente repetir a mensagem por escrito.]";
     } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
       const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
       const mediaType = messageType === "IMAGE" ? "image" : "document";
       const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey);
       if (analysis) {
         messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
+        aiMessageContent = messageContent;
       }
     }
   }
@@ -328,7 +339,7 @@ export async function POST(req: NextRequest) {
   let aiResult: Awaited<ReturnType<typeof processIncomingMessage>> = null;
   let aiError: Error | null = null;
   try {
-    aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia, msg.id);
+    aiResult = await processIncomingMessage(org.id, conversation.id, aiMessageContent, hasMedia, msg.id);
   } catch (err) {
     aiError = err as Error;
     console.error(`[Webhook] processIncomingMessage falhou:`, aiError.message);
