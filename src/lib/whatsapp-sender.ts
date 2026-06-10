@@ -48,9 +48,10 @@ export async function sendWhatsAppMessage(
   message: string,
   chatLid?: string | null
 ): Promise<void> {
-  // Para contatos LID (privacidade do WhatsApp), a Evolution API exige o
+  // Para contatos LID (privacidade do WhatsApp), a Evolution API costuma exigir o
   // identificador xxxxxx@lid no campo "number" — phoneNumber real não roteia.
-  // Usa chatLid se houver.
+  // Usa chatLid se houver, com fallback para o número real se o LID falhar
+  // (a Evolution às vezes ainda não tem o mapeamento LID→número sincronizado).
   const routingTarget = chatLid && chatLid.includes("@lid") ? chatLid : phoneNumber;
 
   const [evoUrl, evoKey, evoInstance] = await Promise.all([
@@ -60,7 +61,15 @@ export async function sendWhatsAppMessage(
   ]);
 
   if (evoUrl && evoKey && evoInstance) {
-    await sendViaEvolution(evoUrl, evoKey, evoInstance, routingTarget, message);
+    try {
+      await sendViaEvolution(evoUrl, evoKey, evoInstance, routingTarget, message);
+    } catch (e) {
+      if (routingTarget !== phoneNumber && phoneNumber) {
+        await sendViaEvolution(evoUrl, evoKey, evoInstance, phoneNumber, message);
+        return;
+      }
+      throw e;
+    }
     return;
   }
 
