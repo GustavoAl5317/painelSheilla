@@ -61,6 +61,9 @@ export function EvolutionConnectButton() {
       } else {
         startPolling();
       }
+      if (!data.qrcode && !data.pairingCode && data.connectionStatus !== "open") {
+        setError(`A Evolution API não retornou QR code nem código de pareamento. Resposta: ${JSON.stringify(data)}`);
+      }
     } catch {
       setError("Falha na requisição.");
     } finally {
@@ -103,7 +106,7 @@ export function EvolutionConnectButton() {
               {error && (
                 <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-3">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>{error}</span>
+                  <span className="break-all">{error}</span>
                 </div>
               )}
 
