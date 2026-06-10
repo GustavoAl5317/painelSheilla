@@ -428,8 +428,14 @@ export async function POST(req: NextRequest) {
 
     emit(org.id, "message", { conversationId: conversation.id, message: aiMsg });
 
+    // Usa o número real salvo na conversa (pode já ter sido descoberto antes)
+    // quando o payload atual só trouxe o @lid (phoneNumber vazio). Ignora o
+    // placeholder "lid:..." usado quando nunca houve número real.
+    const savedPhone = conversation.phoneNumber?.startsWith("lid:") ? "" : conversation.phoneNumber;
+    const sendTargetPhone = phoneNumber || savedPhone || "";
+
     try {
-      await sendWhatsAppMessage(org.id, phoneNumber, aiResult.content, chatLid);
+      await sendWhatsAppMessage(org.id, sendTargetPhone, aiResult.content, chatLid);
     } catch (err) {
       console.error("[webhook] Falha ao enviar mensagem WhatsApp:", (err as Error).message);
     }
