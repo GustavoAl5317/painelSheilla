@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Lock, Scale, FileText, Gavel, Plug, Info } from "lucide-react";
 import { PJeSyncButton } from "@/components/integracoes/pje-sync-button";
 import { SyncButton } from "@/components/integracoes/sync-button";
+import { EvolutionConnectButton } from "@/components/integracoes/evolution-connect-button";
 
 const availableIntegrations = [
   { type: "EVOLUTION_API", name: "Evolution API", description: "Conecte o WhatsApp do escritório via Evolution API para envio e recebimento de mensagens.", category: "WhatsApp",  requiresPlan: "STARTER", logo: "🔗", color: "bg-green-50 text-green-600" },
@@ -170,9 +171,13 @@ export default async function IntegracoesPage() {
                                 )}
                               </div>
                               <p className="text-xs text-gray-500 leading-relaxed mb-4">{integration.description}</p>
-                              <Button size="sm" variant={unlocked ? "default" : "secondary"} disabled={!unlocked} className="w-full">
-                                {!unlocked ? "Requer plano " + integration.requiresPlan : "Configurar"}
-                              </Button>
+                              {integration.type === "EVOLUTION_API" && unlocked ? (
+                                <EvolutionConnectButton />
+                              ) : (
+                                <Button size="sm" variant={unlocked ? "default" : "secondary"} disabled={!unlocked} className="w-full">
+                                  {!unlocked ? "Requer plano " + integration.requiresPlan : "Configurar"}
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </CardContent>
