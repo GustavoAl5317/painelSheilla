@@ -75,10 +75,13 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   // body.phone e remoteJid (Evolution) costumam trazer o número real
   // mesmo em contatos LID. Quando body.phone é o próprio LID, não usa como phoneCandidate.
+  // IMPORTANTE: body.sender (Evolution) é sempre o número da PRÓPRIA instância
+  // (dono do WhatsApp conectado), nunca o do contato — não usar como fallback,
+  // senão mensagens de contatos @lid são atribuídas erroneamente à própria conta.
   const phoneCandidate =
     fromMe
       ? (!bodyPhoneIsLid ? bodyPhoneRaw : null) ?? (remoteJid && !remoteJid.includes("@lid") ? remoteJid : null) ?? str((body as any).to) ?? str((body as any).recipient) ?? str((body as any).chatId)
-      : (!bodyPhoneIsLid ? bodyPhoneRaw : null) ?? (remoteJid && !remoteJid.includes("@lid") ? remoteJid : null) ?? str(body.from) ?? str(body.sender);
+      : (!bodyPhoneIsLid ? bodyPhoneRaw : null) ?? (remoteJid && !remoteJid.includes("@lid") ? remoteJid : null) ?? str(body.from);
 
   const rawPhone = phoneCandidate ?? chatLidFull;
 
