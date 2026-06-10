@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncDJEN } from "@/lib/djen-sync";
 
-// Chamado pelo Vercel Cron Jobs (GET) — configurado em vercel.json
-// Horários: 08h, 14h e 20h de segunda a sábado (horário UTC)
+// Chamado via cron do sistema (GET) — ver scripts/crontab.example
+// Horário sugerido: 08h diariamente
 export async function GET(req: NextRequest) {
   const secret = req.headers.get("authorization");
   if (process.env.CRON_SECRET && secret !== `Bearer ${process.env.CRON_SECRET}`) {

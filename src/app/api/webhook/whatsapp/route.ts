@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       where: { organizationId: org.id, phoneNumber },
     });
 
-    // Tolerância: Z-API às vezes envia fromMe sem o 9 extra (12 dígitos) enquanto
+    // Tolerância: o provider às vezes envia fromMe sem o 9 extra (12 dígitos) enquanto
     // a conversa foi criada com 13 dígitos (ou vice-versa). Tenta o formato alternativo.
     if (!conversation && phoneNumber.startsWith("55") && (phoneNumber.length === 12 || phoneNumber.length === 13)) {
       const alt =
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
-    // Detecta echo: Z-API devolve como fromMe=true qualquer mensagem enviada pelo número
+    // Detecta echo: o provider devolve como fromMe=true qualquer mensagem enviada pelo número
     // conectado (IA ou operador). Se a mensagem já está salva como OUTBOUND nos últimos
     // 3 minutos, é echo — ignora sem tocar no aiEnabled.
     // Comandos ".." e "." são verificados ANTES para nunca serem tratados como echo.
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
       });
       const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
       const normalizedIncoming = normalizeMsg(messageContent);
-      // Aceita match parcial (primeiros 80 chars) para tolerar truncamento do Z-API
+      // Aceita match parcial (primeiros 80 chars) para tolerar truncamento do provider
       const isEcho = recentOutbound.some(m => {
         const n = normalizeMsg(m.content);
         return n === normalizedIncoming || n.startsWith(normalizedIncoming.slice(0, 80)) || normalizedIncoming.startsWith(n.slice(0, 80));
@@ -372,7 +372,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
-    // (ex: cliente envia PDF + ZIP juntos — Z-API dispara dois eventos quase simultâneos).
+    // (ex: cliente envia PDF + ZIP juntos — o provider dispara dois eventos quase simultâneos).
     // Usa msg.createdAt como limite inferior para nunca suprimir respostas a mensagens
     // anteriores legítimas (ex: IA perguntou CPF e cliente respondeu menos de 15s depois).
     const recentAiReply = await prisma.message.findFirst({

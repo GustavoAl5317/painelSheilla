@@ -10,8 +10,7 @@ import { PJeSyncButton } from "@/components/integracoes/pje-sync-button";
 import { SyncButton } from "@/components/integracoes/sync-button";
 
 const availableIntegrations = [
-  { type: "ZAPI",          name: "Z-API",        description: "Conecte o WhatsApp do escritório via Z-API para envio e recebimento de mensagens.", category: "WhatsApp",  requiresPlan: "STARTER", logo: "📱", color: "bg-green-50 text-green-600" },
-  { type: "EVOLUTION_API", name: "Evolution API", description: "Alternativa open-source ao Z-API para integração WhatsApp.",                      category: "WhatsApp",  requiresPlan: "STARTER", logo: "🔗", color: "bg-green-50 text-green-600" },
+  { type: "EVOLUTION_API", name: "Evolution API", description: "Conecte o WhatsApp do escritório via Evolution API para envio e recebimento de mensagens.", category: "WhatsApp",  requiresPlan: "STARTER", logo: "🔗", color: "bg-green-50 text-green-600" },
   { type: "TRELLO",        name: "Trello",        description: "Sincronize clientes como cards no Trello com dados completos da triagem e histórico.", category: "Gestão", requiresPlan: "PRO",     logo: "📋", color: "bg-blue-50 text-blue-600" },
   { type: "BITRIX",        name: "Bitrix24",      description: "Envie leads e tarefas automaticamente para o seu Bitrix24.",                        category: "Gestão",   requiresPlan: "PRO",     logo: "🏢", color: "bg-blue-50 text-blue-600" },
   { type: "HUBSPOT",       name: "HubSpot",       description: "Integração com HubSpot CRM para escritórios que já usam a plataforma.",             category: "Gestão",   requiresPlan: "PREMIUM", logo: "🟠", color: "bg-orange-50 text-orange-600" },

@@ -1,0 +1,21 @@
+# Exemplo de crontab para os jobs agendados do AdvZap em uma VM dedicada.
+#
+# Instalação:
+#   1. Ajuste APP_URL e CRON_SECRET (mesmo valor do .env da aplicação).
+#   2. Ajuste o caminho do projeto em "/caminho/do/projeto".
+#   3. Instale com: crontab scripts/crontab.example
+#
+APP_URL=http://localhost:3000
+CRON_SECRET=troque-por-um-valor-secreto
+
+# DJEN — publicações do Diário da Justiça (diário às 08:00)
+0 8 * * * /caminho/do/projeto/scripts/cron-job.sh /api/cron/djen >> /var/log/advzap/cron-djen.log 2>&1
+
+# Lembretes de agendamentos (diário às 07:00)
+0 7 * * * /caminho/do/projeto/scripts/cron-job.sh /api/cron/appointments >> /var/log/advzap/cron-appointments.log 2>&1
+
+# Atualização de clientes via Tramitação Inteligente (diário às 11:30)
+30 11 * * * /caminho/do/projeto/scripts/cron-job.sh /api/cron/tramitacao-clients >> /var/log/advzap/cron-tramitacao-clients.log 2>&1
+
+# Follow-up de conversas abandonadas (a cada 30 minutos)
+*/30 * * * * /caminho/do/projeto/scripts/cron-job.sh /api/cron/followup >> /var/log/advzap/cron-followup.log 2>&1

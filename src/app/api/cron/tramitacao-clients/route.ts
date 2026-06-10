@@ -5,10 +5,7 @@ import { tiUpsertNote } from "@/lib/adapters/tramitacao-adapter";
 import { syncTIClients, type TISyncResult } from "@/lib/ti-sync";
 import { buildTramitacaoTriageNoteContent } from "@/lib/tramitacao-client-note";
 
-/** Sincronização pesada (TI + muitas notas); alinhar com o plano Vercel. */
-export const maxDuration = 300;
-
-// GET — Vercel Cron (vercel.json). Atualiza clientes a partir da TI e reenvia a nota com resumo/conversa do painel.
+// GET — chamado via cron do sistema (ver scripts/crontab.example). Atualiza clientes a partir da TI e reenvia a nota com resumo/conversa do painel.
 
 export async function GET(req: NextRequest) {
   const secret = req.headers.get("authorization");

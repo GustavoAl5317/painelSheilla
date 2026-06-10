@@ -1,5 +1,5 @@
 #!/bin/sh
-# Roda prisma migrate deploy com até 3 tentativas (advisory lock timeout na Vercel)
+# Roda prisma migrate deploy com até 3 tentativas (advisory lock timeout no Postgres)
 MAX=3
 i=1
 until prisma migrate deploy; do

@@ -2,10 +2,6 @@
 // Pode ser importado tanto por Client Components quanto por Server Components.
 
 export type CredentialKey =
-  | "ZAPI_INSTANCE"
-  | "ZAPI_TOKEN"
-  | "ZAPI_CLIENT_TOKEN"
-  | "ZAPI_PHONE"
   | "EVOLUTION_API_URL"
   | "EVOLUTION_API_KEY"
   | "EVOLUTION_INSTANCE"
@@ -34,41 +30,6 @@ export interface CredentialMeta {
 }
 
 export const CREDENTIAL_DEFINITIONS: CredentialMeta[] = [
-  {
-    key: "ZAPI_INSTANCE",
-    label: "Instance ID",
-    description: "Identificador único da instância Z-API",
-    placeholder: "Ex: 3AXXXXXXXXXX",
-    type: "text",
-    group: "WhatsApp — Z-API",
-    envFallback: "ZAPI_DEFAULT_INSTANCE",
-  },
-  {
-    key: "ZAPI_TOKEN",
-    label: "Token",
-    description: "Token de autenticação da instância Z-API",
-    placeholder: "Ex: abc123def456...",
-    type: "password",
-    group: "WhatsApp — Z-API",
-    envFallback: "ZAPI_DEFAULT_TOKEN",
-  },
-  {
-    key: "ZAPI_CLIENT_TOKEN",
-    label: "Client-Token (Security Token)",
-    description: "Security Token do painel Z-API (aba Segurança). Obrigatório em contas com segurança ativada.",
-    placeholder: "Ex: Fb6a...",
-    type: "password",
-    group: "WhatsApp — Z-API",
-    envFallback: "ZAPI_DEFAULT_CLIENT_TOKEN",
-  },
-  {
-    key: "ZAPI_PHONE",
-    label: "Número WhatsApp",
-    description: "Número conectado na instância (com DDI, sem +)",
-    placeholder: "Ex: 5511999990000",
-    type: "text",
-    group: "WhatsApp — Z-API",
-  },
   {
     key: "EVOLUTION_API_URL",
     label: "URL da API",

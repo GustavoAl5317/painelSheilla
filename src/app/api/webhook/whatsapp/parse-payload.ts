@@ -1,5 +1,5 @@
 /**
- * Normaliza o body do webhook (Z-API, Evolution, formatos similares).
+ * Normaliza o body do webhook da Evolution API (e formatos similares).
  * Retorna null quando o evento não deve ser processado como mensagem de entrada.
  */
 
@@ -25,9 +25,6 @@ function str(v: unknown): string | null {
 
 export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedInbound | { skip: true; reason: string } {
   // Eventos puros de status (entrega, leitura) — nunca contêm conteúdo de mensagem.
-  // SentCallback NÃO está aqui porque, em alguns providers (Z-API), ele traz o texto
-  // digitado pelo operador no app — o filtro "no_content" abaixo descarta o caso
-  // em que é apenas confirmação de envio.
   if (
     body.type === "DeliveredCallback" ||
     body.type === "ReadCallback" ||
@@ -36,8 +33,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     return { skip: true, reason: "status_event" };
   }
 
-  // fromMe pode aparecer em vários formatos dependendo do provider:
-  //   Z-API:     body.fromMe / body.isFromMe
+  // fromMe pode aparecer em vários formatos:
   //   Evolution: body.key.fromMe ou body.data.key.fromMe
   //   Outros:    body.direction = "out" / "OUTBOUND"
   const key = (body.key ?? (body as any).data?.key) as { fromMe?: unknown } | undefined;
@@ -52,8 +48,8 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   // Identifica o parceiro de chat (o OUTRO lado da conversa) — sempre o cliente,
   // independente de quem enviou a mensagem.
-  //   Z-API:     body.phone é sempre o parceiro (cliente).
   //   Evolution: body.key.remoteJid (ou body.data.key.remoteJid) é o parceiro.
+  //   Outros:    body.phone é o parceiro.
   //   Quando fromMe=true: NUNCA usar body.from / body.sender, que apontam para o
   //   próprio operador — isso criaria uma conversa fantasma com o número dela.
   const dataKey = (body as any).data?.key as { remoteJid?: unknown } | undefined;
@@ -63,10 +59,10 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
       : null) ??
     str(dataKey?.remoteJid);
 
-  // chatLid (Z-API) é o identificador estável do chat quando o contato usa
+  // chatLid é o identificador estável do chat quando o contato usa
   // privacidade (LID). Guardamos separado do número real para que a UI mostre
   // o telefone (quando disponível) e o sender saiba rotear via @lid.
-  // O Z-API pode enviar o LID em body.chatLid OU diretamente em body.phone com sufixo @lid.
+  // O provider pode enviar o LID em body.chatLid OU diretamente em body.phone com sufixo @lid.
   const bodyPhoneRaw = str(body.phone);
   const bodyPhoneIsLid = bodyPhoneRaw?.includes("@lid") ?? false;
   const chatLidRaw = str((body as any).chatLid);
@@ -77,7 +73,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     remoteJidLid ??
     null;
 
-  // body.phone (Z-API) e remoteJid (Evolution) costumam trazer o número real
+  // body.phone e remoteJid (Evolution) costumam trazer o número real
   // mesmo em contatos LID. Quando body.phone é o próprio LID, não usa como phoneCandidate.
   const phoneCandidate =
     fromMe
@@ -94,8 +90,6 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   // IMPORTANTE: @lid (LinkedID) NÃO é grupo — é o formato de privacidade do
   // WhatsApp para chats individuais. Filtrá-lo bloqueia mensagens legítimas
   // do operador (ex.: comando "#" para pausar IA) em contatos com LID ativo.
-  // rawPhone com @g.us: Evolution API
-  // body.isGroup / body.chatId com @g.us: Z-API
   const chatId = str((body as any).chatId) ?? str((body as any).groupId) ?? str((body as any).remoteJid) ?? "";
   if (
     rawPhone.includes("@g.us") ||
@@ -124,7 +118,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
 
   // Números BR sem código de país recebem prefixo 55.
   // Normaliza para sempre 13 dígitos (55 + DDD 2 + 9 + número 8) — formato canônico BR.
-  // Z-API às vezes envia fromMe com 12 dígitos (sem o 9 extra); adicionamos o 9.
+  // O provider às vezes envia fromMe com 12 dígitos (sem o 9 extra); adicionamos o 9.
   let normalizedDigits = digits;
   if (!rawIsLid) {
     if (digits.length === 10 || digits.length === 11) {
@@ -182,8 +176,8 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     if (!content.trim()) content = `[Documento: ${documentName}]`;
   }
 
-  // Áudio — Z-API: body.audio.audioUrl | body.audio.pttUrl | body.pttUrl
-  // Evolution API: body.message.audioMessage.url | body.message.pttMessage.url
+  // Áudio — Evolution API: body.message.audioMessage.url | body.message.pttMessage.url
+  // Outros: body.audio.audioUrl | body.audio.pttUrl | body.pttUrl
   let audioUrl: string | undefined;
   if (!content) {
     const audio = body.audio as { audioUrl?: string; pttUrl?: string } | undefined;

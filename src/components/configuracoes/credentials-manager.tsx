@@ -23,7 +23,7 @@ export function CredentialsManager({ orgPlan }: CredentialsManagerProps) {
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    "WhatsApp — Z-API": true,
+    "WhatsApp — Evolution API": true,
   });
   const [dbAvailable, setDbAvailable] = useState<boolean | null>(null);
 
