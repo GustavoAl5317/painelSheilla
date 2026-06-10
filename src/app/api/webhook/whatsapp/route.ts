@@ -117,22 +117,31 @@ export async function POST(req: NextRequest) {
   if (!conversation) {
     const lookupPhone = phoneNumber || `lid:${chatLid}`;
     const displayName = phoneNumber || chatLid || lookupPhone;
-    const [defaultStage, formerClient] = await Promise.all([
-      prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
-      phoneNumber
-        ? prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } })
-        : Promise.resolve(null),
-    ]);
 
-    const lead = await prisma.lead.create({
-      data: {
-        name: formerClient?.name ?? displayName,
-        phone: phoneNumber || null,
-        source: "WHATSAPP",
-        organizationId: org.id,
-        stageId: defaultStage?.id,
-      },
-    });
+    // Mensagem enviada PELO operador para um contato novo (ex.: a Dra. Sheila inicia
+    // a conversa direto pelo WhatsApp, fora do painel) não deve criar um lead "fantasma"
+    // no Kanban — só a conversa, para guardar o histórico. O lead é criado quando o
+    // próprio cliente responder (ver bloco de processamento da mensagem do cliente).
+    let leadId: string | undefined;
+    if (!parsed.fromMe) {
+      const [defaultStage, formerClient] = await Promise.all([
+        prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
+        phoneNumber
+          ? prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } })
+          : Promise.resolve(null),
+      ]);
+
+      const lead = await prisma.lead.create({
+        data: {
+          name: formerClient?.name ?? displayName,
+          phone: phoneNumber || null,
+          source: "WHATSAPP",
+          organizationId: org.id,
+          stageId: defaultStage?.id,
+        },
+      });
+      leadId = lead.id;
+    }
 
     try {
       conversation = await prisma.conversation.create({
@@ -140,7 +149,7 @@ export async function POST(req: NextRequest) {
           phoneNumber: phoneNumber || `lid:${chatLid}`,
           chatLid: chatLid ?? null,
           organizationId: org.id,
-          leadId: lead.id,
+          leadId,
           status: "OPEN",
           aiEnabled: true,
           lastMessageAt: new Date(),
@@ -157,7 +166,7 @@ export async function POST(req: NextRequest) {
             where: { organizationId: org.id, phoneNumber },
           });
         }
-        await prisma.lead.delete({ where: { id: lead.id } }).catch(() => {});
+        if (leadId) await prisma.lead.delete({ where: { id: leadId } }).catch(() => {});
       }
       if (!conversation) throw e;
     }
@@ -177,6 +186,32 @@ export async function POST(req: NextRequest) {
         data: { clientId },
       });
     }
+  }
+
+  // ── Cria o lead agora, se a conversa ainda não tiver um ──────────────────
+  // Acontece quando a conversa foi criada a partir de uma mensagem do operador
+  // (ver bloco acima) e o cliente está respondendo pela primeira vez agora.
+  if (!conversation.leadId && !conversation.clientId && !parsed.fromMe) {
+    const [defaultStage, formerClient] = await Promise.all([
+      prisma.kanbanStage.findFirst({ where: { organizationId: org.id, slug: "new_lead" } }),
+      phoneNumber
+        ? prisma.client.findFirst({ where: { organizationId: org.id, phone: phoneNumber }, select: { name: true } })
+        : Promise.resolve(null),
+    ]);
+    const displayName = phoneNumber || chatLid || conversation.phoneNumber;
+    const lead = await prisma.lead.create({
+      data: {
+        name: formerClient?.name ?? displayName,
+        phone: phoneNumber || null,
+        source: "WHATSAPP",
+        organizationId: org.id,
+        stageId: defaultStage?.id,
+      },
+    });
+    conversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { leadId: lead.id },
+    });
   }
 
   // ── Mensagens do operador: trata antes de salvar ─────────────────────────
