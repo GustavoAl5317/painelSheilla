@@ -180,6 +180,7 @@ model Conversation {
   lastMessageAt          DateTime?
   operatorLastMessageAt  DateTime?
   unreadCount            Int                @default(0)
+  lastAiProcessedMessageId String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   isBlocked      Boolean            @default(false)

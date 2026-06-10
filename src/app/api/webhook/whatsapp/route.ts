@@ -335,6 +335,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ai: "disabled" });
   }
 
+  // Trava atômica: garante que apenas UMA requisição processa esta mensagem com a IA,
+  // mesmo quando o provider dispara webhooks duplicados/paralelos para o mesmo evento.
+  const claim = await prisma.conversation.updateMany({
+    where: {
+      id: conversation.id,
+      OR: [
+        { lastAiProcessedMessageId: null },
+        { lastAiProcessedMessageId: { not: msg.id } },
+      ],
+    },
+    data: { lastAiProcessedMessageId: msg.id },
+  });
+  if (claim.count === 0) {
+    console.log(`[Webhook] Processamento da IA já reivindicado por outra requisição para ${phoneNumber} (msg=${msg.id}).`);
+    return NextResponse.json({ ok: true, ai: "already_claimed" });
+  }
+
   console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
   let aiResult: Awaited<ReturnType<typeof processIncomingMessage>> = null;
   let aiError: Error | null = null;
