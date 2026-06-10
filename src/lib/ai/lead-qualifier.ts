@@ -397,14 +397,13 @@ export async function processIncomingMessage(
   }
 
   // ── Transferência para humano ─────────────────────────────────────────────
-  // Só desativa a IA se o operador não a reativou manualmente com ".".
-  // Se operatorIntervened, o operador já está ciente — notifica mas mantém a IA conforme estava.
+  // A IA permanece ativa mesmo após sinalizar transferência — só é pausada por
+  // mensagem da Dra. Sheila ou pelo comando "..".
   if (result.shouldTransferToHuman) {
     await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         status: "TRANSFERRED_TO_HUMAN",
-        ...(!operatorIntervened && { aiEnabled: false }),
       },
     });
 

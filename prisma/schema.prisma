@@ -203,8 +203,11 @@ model Message {
   externalId     String?
   mediaUrl       String?
   isAI           Boolean          @default(false)
+  replyToMessageId String?
   createdAt      DateTime         @default(now())
   conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, replyToMessageId])
 }
 
 model Process {

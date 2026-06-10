@@ -371,32 +371,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ai: "blocked_by_operator" });
     }
 
-    // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
-    // (ex: cliente envia PDF + ZIP juntos — Z-API dispara dois eventos quase simultâneos).
-    // Usa msg.createdAt como limite inferior para nunca suprimir respostas a mensagens
-    // anteriores legítimas (ex: IA perguntou CPF e cliente respondeu menos de 15s depois).
-    const recentAiReply = await prisma.message.findFirst({
-      where: {
-        conversationId: conversation.id,
-        isAI: true,
-        createdAt: { gte: msg.createdAt },
-      },
-      select: { id: true },
-    });
-    if (recentAiReply) {
-      console.log(`[Webhook] Resposta da IA suprimida para ${phoneNumber}: já foi respondido nos últimos 15s.`);
-      return NextResponse.json({ ok: true, ai: "suppressed_duplicate" });
+    // Dedup atômico de resposta da IA: evita envio duplo quando dois webhooks chegam em
+    // paralelo para a mesma mensagem do cliente (ex: cliente envia PDF + ZIP juntos —
+    // Z-API dispara dois eventos quase simultâneos). A constraint única
+    // (conversationId, replyToMessageId) garante que só uma resposta seja criada por
+    // mensagem de entrada, mesmo sob concorrência.
+    let aiMsg;
+    try {
+      aiMsg = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          content: aiResult.content,
+          direction: "OUTBOUND",
+          status: "SENT",
+          isAI: true,
+          replyToMessageId: msg.id,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === "P2002") {
+        console.log(`[Webhook] Resposta da IA suprimida para ${phoneNumber}: já respondida em paralelo (msg=${msg.id}).`);
+        return NextResponse.json({ ok: true, ai: "suppressed_duplicate" });
+      }
+      throw e;
     }
-
-    const aiMsg = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: aiResult.content,
-        direction: "OUTBOUND",
-        status: "SENT",
-        isAI: true,
-      },
-    });
 
     emit(org.id, "message", { conversationId: conversation.id, message: aiMsg });
 
