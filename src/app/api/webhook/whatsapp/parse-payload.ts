@@ -144,11 +144,18 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
       ? str((text as { message?: unknown }).message)
       : null;
 
+  // Evolution API aninha a mensagem em body.data.message; outros formatos
+  // podem trazer direto em body.message.
+  const msgObj = (body.message ?? (body as any).data?.message) as Record<string, unknown> | undefined;
+
   let content =
     textMessage ??
     str(body.body) ??
-    (typeof body.message === "object" && body.message !== null && "conversation" in body.message
-      ? str((body.message as { conversation?: unknown }).conversation)
+    (typeof msgObj === "object" && msgObj !== null && "conversation" in msgObj
+      ? str((msgObj as { conversation?: unknown }).conversation)
+      : null) ??
+    (typeof msgObj === "object" && msgObj !== null && "extendedTextMessage" in msgObj
+      ? str((msgObj as { extendedTextMessage?: { text?: unknown } }).extendedTextMessage?.text)
       : null) ??
     "";
 
@@ -182,7 +189,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   if (!content) {
     const audio = body.audio as { audioUrl?: string; pttUrl?: string } | undefined;
     const pttUrl = str((body as any).pttUrl);
-    const evAudio = (body.message as any)?.audioMessage?.url ?? (body.message as any)?.pttMessage?.url;
+    const evAudio = (msgObj as any)?.audioMessage?.url ?? (msgObj as any)?.pttMessage?.url;
     audioUrl = str(audio?.audioUrl) ?? str(audio?.pttUrl) ?? pttUrl ?? str(evAudio) ?? undefined;
     content = audioUrl ? "[Áudio recebido]" : "";
   }
