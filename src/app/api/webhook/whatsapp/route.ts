@@ -9,6 +9,10 @@ import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { emit } from "@/lib/sse-emitter";
 import { resolveCredential } from "@/lib/credentials";
 
+// Tempo de inatividade do operador (sem mensagens/ações) após o qual a IA
+// volta a responder automaticamente, mesmo que tenha sido pausada/transferida.
+const AI_REACTIVATION_IDLE_MS = 2 * 60 * 60_000; // 2 horas
+
 export async function POST(req: NextRequest) {
   const orgSlug = req.nextUrl.searchParams.get("org");
   if (!orgSlug) return NextResponse.json({ error: "org é obrigatório" }, { status: 400 });
@@ -320,8 +324,22 @@ export async function POST(req: NextRequest) {
   });
 
   if (!freshConv?.aiEnabled) {
-    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
-    return NextResponse.json({ ok: true, ai: "disabled" });
+    // Reativa a IA automaticamente se o operador ficou muito tempo sem interagir
+    // (IA pausada/transferida para humano e ninguém respondeu nesse intervalo).
+    const lastOperatorAction = freshConv?.operatorLastMessageAt;
+    const inactiveForTooLong =
+      !lastOperatorAction || lastOperatorAction.getTime() < Date.now() - AI_REACTIVATION_IDLE_MS;
+
+    if (!inactiveForTooLong) {
+      console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
+      return NextResponse.json({ ok: true, ai: "disabled" });
+    }
+
+    console.log(`[Webhook] IA reativada para ${phoneNumber}: operador inativo há mais de ${AI_REACTIVATION_IDLE_MS / 60_000} min.`);
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { aiEnabled: true },
+    });
   }
 
   console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
