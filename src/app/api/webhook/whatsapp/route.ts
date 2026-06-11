@@ -359,14 +359,14 @@ export async function POST(req: NextRequest) {
     // Verifica se o operador respondeu enquanto a IA estava processando
     const convAfterAI = await prisma.conversation.findUnique({
       where: { id: conversation.id },
-      select: { aiEnabled: true, operatorLastMessageAt: true },
+      select: { operatorLastMessageAt: true },
     });
 
     const operatorRespondedDuringAI =
       convAfterAI?.operatorLastMessageAt &&
       convAfterAI.operatorLastMessageAt > clientMessageReceivedAt;
 
-    if (!convAfterAI?.aiEnabled || operatorRespondedDuringAI) {
+    if (operatorRespondedDuringAI) {
       console.log(`[Webhook] AI bloqueada para ${phoneNumber}: operador respondeu durante processamento.`);
       return NextResponse.json({ ok: true, ai: "blocked_by_operator" });
     }
