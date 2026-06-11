@@ -98,8 +98,9 @@ export async function runAIChat(
 function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
   const handoffNoContextRule = `
 REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
-- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
-- Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
+- Saudações simples ("oi", "olá", "bom dia", "boa tarde", "boa noite", mesmo dirigidas à "Dra"/"Doutora") NÃO são "retorno fora de contexto" — são o início normal da triagem. Para essas, siga o FLUXO OBRIGATÓRIO normalmente (pergunte o nome, se ainda não souber).
+- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente claramente referenciar algo específico que não está no histórico (ex.: "enviei o documento", "já assinei", "conforme combinado") e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
+- Nessa situação (referência específica fora de contexto) responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
 
   const firstNameForGreeting = (() => {
     const raw = contactName?.trim();
