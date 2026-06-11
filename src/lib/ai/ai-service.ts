@@ -26,29 +26,6 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
-export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
-  "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
-
-/** Respostas típicas quando o modelo "não entende" e pede dados em vez de encaminhar. */
-function replySoundsLikeContextConfusion(assistantReply: string): boolean {
-  const t = assistantReply.toLowerCase();
-  return (
-    /não consegui identificar|nao consegui identificar|não consigo identificar|nao consigo identificar/.test(t) ||
-    /não consegui entender|nao consegui entender/.test(t) ||
-    /novo caso ou.*atendimento anterior|atendimento anterior.*novo caso/i.test(assistantReply) ||
-    (/atendimento anterior/.test(t) && /nome completo/.test(t)) ||
-    /em contato referente a um novo caso/i.test(t)
-  );
-}
-
-export function shouldUseUnclearContextFallbackReply(
-  clientContext: string | undefined,
-  assistantReply: string
-): boolean {
-  if (clientContext) return false;
-  return replySoundsLikeContextConfusion(assistantReply);
-}
-
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -76,32 +53,20 @@ export async function runAIChat(
 
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
 
-  let cleanContent = responseContent
+  const cleanContent = responseContent
     .replace("[TRANSFERIR_PARA_HUMANO]", "")
     .replace("[TRIAGEM COMPLETA]", "")
     .trim();
 
-  let finalShouldTransfer = shouldTransfer;
-  if (shouldUseUnclearContextFallbackReply(clientContext, cleanContent)) {
-    cleanContent = UNCLEAR_CONTEXT_FALLBACK_REPLY;
-    finalShouldTransfer = true;
-  }
-
   return {
     content: cleanContent,
-    shouldTransferToHuman: finalShouldTransfer,
+    shouldTransferToHuman: shouldTransfer,
     triageComplete,
     qualifiedData,
   };
 }
 
 function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
-  const handoffNoContextRule = `
-REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
-- Saudações simples ("oi", "olá", "bom dia", "boa tarde", "boa noite", mesmo dirigidas à "Dra"/"Doutora") NÃO são "retorno fora de contexto" — são o início normal da triagem. Para essas, siga o FLUXO OBRIGATÓRIO normalmente (pergunte o nome, se ainda não souber).
-- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente claramente referenciar algo específico que não está no histórico (ex.: "enviei o documento", "já assinei", "conforme combinado") e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
-- Nessa situação (referência específica fora de contexto) responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
-
   const firstNameForGreeting = (() => {
     const raw = contactName?.trim();
     if (!raw) return "";
@@ -139,7 +104,7 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
 - NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
 - Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
 - Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.${handoffNoContextRule}`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
