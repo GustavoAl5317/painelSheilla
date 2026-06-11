@@ -29,7 +29,7 @@ export interface AIServiceConfig {
 export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
   "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
 
-/** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
+/** Respostas típicas quando o modelo "não entende" e pede dados em vez de encaminhar. */
 function replySoundsLikeContextConfusion(assistantReply: string): boolean {
   const t = assistantReply.toLowerCase();
   return (
@@ -37,7 +37,6 @@ function replySoundsLikeContextConfusion(assistantReply: string): boolean {
     /não consegui entender|nao consegui entender/.test(t) ||
     /novo caso ou.*atendimento anterior|atendimento anterior.*novo caso/i.test(assistantReply) ||
     (/atendimento anterior/.test(t) && /nome completo/.test(t)) ||
-    (/poderia me informar/.test(t) && (/nome completo/.test(t) || /seu nome/i.test(t))) ||
     /em contato referente a um novo caso/i.test(t)
   );
 }
