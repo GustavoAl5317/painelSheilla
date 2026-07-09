@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { ensureClientCaseCard } from "@/lib/case-card";
+import { ensureClientPublicToken } from "@/lib/client-public-token";
 import type { TIPublication } from "@/lib/adapters/tramitacao-adapter";
 
 // Webhook recebido da Tramitação Inteligente
 // Eventos: publications.created | customer.created | customer.updated
 export async function POST(req: NextRequest) {
-  // Responde ACK imediatamente (padrão TI)
   const orgSlug = req.nextUrl.searchParams.get("org");
   if (!orgSlug) return NextResponse.json({ error: "org obrigatório" }, { status: 400 });
 
@@ -26,6 +27,23 @@ export async function POST(req: NextRequest) {
   );
 
   return NextResponse.json({ ok: true });
+}
+
+/** Extrai as 1-2 primeiras frases de um texto de publicação para exibição ao cliente. */
+function resumirPublicacao(texto: string | undefined | null): string {
+  if (!texto) return "";
+  // Remove cabeçalhos típicos de diário (maiúsculas, datas, referências numéricas)
+  const limpo = texto
+    .replace(/\n+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // Pega até 300 caracteres terminando em frase completa
+  if (limpo.length <= 300) return limpo;
+  const corte = limpo.slice(0, 300);
+  const ultimoPonto = Math.max(corte.lastIndexOf(". "), corte.lastIndexOf("! "), corte.lastIndexOf("? "));
+  if (ultimoPonto > 100) return `${corte.slice(0, ultimoPonto + 1)}`;
+  return `${corte}…`;
 }
 
 async function processWebhook(organizationId: string, payload: any) {
@@ -63,7 +81,7 @@ async function processWebhook(organizationId: string, payload: any) {
         },
       });
 
-      // Busca processo existente pelo número (pode ter sido criado sem cliente)
+      // Busca processo existente pelo número
       const processNumberSlice = processoFormatado.replace(/[^\d]/g, "").slice(0, 20);
       let linkedProcess = linkedClient?.processes?.[0] ?? null;
 
@@ -73,7 +91,6 @@ async function processWebhook(organizationId: string, payload: any) {
         });
       }
 
-      // Se não encontrou processo, cria um sem cliente (ficará na fila para vinculação)
       if (!linkedProcess) {
         linkedProcess = await prisma.process.create({
           data: {
@@ -88,11 +105,73 @@ async function processWebhook(organizationId: string, payload: any) {
           },
         });
       } else if (!linkedProcess.clientId && linkedClient) {
-        // Processo existia sem cliente, agora encontrou — vincula
         linkedProcess = await prisma.process.update({
           where: { id: linkedProcess.id },
           data: { clientId: linkedClient.id },
         });
+      }
+
+      // Garante ClientCaseCard, CrmCard e registra entrada na linha do tempo
+      if (linkedClient) {
+        try {
+          const caseCard = await ensureClientCaseCard(organizationId, linkedClient.id);
+          if (!caseCard.processId) {
+            await prisma.clientCaseCard.update({
+              where: { id: caseCard.id },
+              data: { processId: linkedProcess.id },
+            });
+          }
+
+          const existingCrmCard = await prisma.crmCard.findFirst({
+            where: { organizationId, processId: linkedProcess.id },
+          });
+          if (!existingCrmCard) {
+            const firstBoard = await prisma.crmBoard.findFirst({
+              where: { organizationId },
+              orderBy: { order: "asc" },
+            });
+            if (firstBoard) {
+              const procNum = linkedProcess.number && linkedProcess.number !== "(a definir)"
+                ? linkedProcess.number
+                : null;
+              await prisma.crmCard.create({
+                data: {
+                  organizationId,
+                  boardId: firstBoard.id,
+                  clientId: linkedClient.id,
+                  processId: linkedProcess.id,
+                  title: [linkedClient.name.toUpperCase(), procNum].filter(Boolean).join(" — "),
+                  description: [
+                    linkedProcess.legalArea ? `**Área:** ${linkedProcess.legalArea}` : null,
+                    linkedProcess.court ? `**Tribunal:** ${linkedProcess.court}` : null,
+                    linkedClient.phone ? `**Telefone:** ${linkedClient.phone}` : null,
+                  ].filter(Boolean).join("\n"),
+                },
+              });
+            }
+          }
+
+          // Registra entrada na linha do tempo (visível ao cliente na página de acompanhamento)
+          const resumo = resumirPublicacao(pub.texto);
+          const entryLines = [
+            pub.nomeClasse ? `**${pub.nomeClasse}**` : null,
+            pub.nomeOrgao ?? pub.siglaTribunal ?? null,
+            resumo || null,
+          ].filter(Boolean).join("\n");
+
+          if (entryLines) {
+            await prisma.caseCardEntry.create({
+              data: {
+                cardId: caseCard.id,
+                source: "TRAMITACAO_INTELIGENTE",
+                content: entryLines,
+                shareWithClient: true,
+              },
+            });
+          }
+        } catch {
+          // falha no card/entry não deve bloquear o deadline
+        }
       }
 
       // Calcula prazo
@@ -102,7 +181,7 @@ async function processWebhook(organizationId: string, payload: any) {
           ? new Date(pub.disponibilizacao_date)
           : new Date();
 
-      const deadline = await prisma.deadline.create({
+      await prisma.deadline.create({
         data: {
           organizationId,
           title: deadlineTitle,
@@ -134,14 +213,50 @@ async function processWebhook(organizationId: string, payload: any) {
         },
       });
 
-      // Notifica cliente via WhatsApp (só se tiver cliente vinculado)
+      // Notifica cliente via WhatsApp com resumo + link de acompanhamento
       const conv = linkedClient?.conversations?.[0];
       if (conv) {
         const firstName = linkedClient!.name.split(" ")[0];
-        const msg = `📋 *Nova movimentação judicial*\n\nOlá ${firstName}! Identificamos uma nova movimentação no seu processo.\n\nQualquer dúvida, é só perguntar aqui!`;
+        const resumo = resumirPublicacao(pub.texto);
+        const orgao = pub.siglaTribunal ?? pub.nomeOrgao ?? "";
+        const classe = pub.nomeClasse ?? "";
+
+        let msgLines = [
+          `⚖️ *Nova movimentação no seu processo*`,
+          ``,
+          `Olá, ${firstName}!`,
+        ];
+
+        if (classe || orgao) {
+          msgLines.push(`📌 *${[classe, orgao].filter(Boolean).join(" — ")}*`);
+        }
+        msgLines.push(`📂 Processo: ${processoFormatado}`);
+
+        if (resumo) {
+          msgLines.push(``, `📋 *O que aconteceu:*`, resumo);
+        }
+
+        if (isUrgent) {
+          const fmt = dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+          msgLines.push(``, `🔴 *Prazo: ${fmt}* — entre em contato com o escritório.`);
+        }
+
+        // Inclui link de acompanhamento
+        try {
+          const token = await ensureClientPublicToken(linkedClient!.id);
+          const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+          if (baseUrl) {
+            msgLines.push(``, `🔗 Acompanhe seus processos: ${baseUrl}/acompanhar/${token}`);
+          }
+        } catch {
+          // sem link se falhar
+        }
+
+        msgLines.push(``, `Qualquer dúvida, é só perguntar aqui!`);
+
+        const msg = msgLines.join("\n");
         sendWhatsAppMessage(organizationId, conv.phoneNumber, msg, (conv as any).chatLid)
           .then(() =>
-            // Pausa a IA — mensagem vem do escritório/sistema, não da IA.
             prisma.conversation.update({
               where: { id: conv.id },
               data: { aiEnabled: false, operatorLastMessageAt: new Date() },

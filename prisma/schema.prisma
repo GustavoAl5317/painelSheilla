@@ -121,6 +121,7 @@ model Client {
   tramitacaoSyncedAt     DateTime?
   trelloCardId           String?
   trelloCardUrl          String?
+  publicToken            String?         @unique
   organizationId         String
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
@@ -472,6 +473,7 @@ enum CaseCardEntrySource {
   DJEN
   PJE
   SYSTEM
+  TRAMITACAO_INTELIGENTE
 }
 
 enum NotificationType {

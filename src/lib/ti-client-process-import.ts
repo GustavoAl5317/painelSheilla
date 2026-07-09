@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import {
   collectProcessesFromTICustomer,
   tiFetchCustomerPayloadForProcesses,
-  tiFetchProcessesForCustomer,
   type TIProcess,
 } from "@/lib/adapters/tramitacao-adapter";
 
@@ -64,7 +63,10 @@ function buildTiObservations(tiProc: TIProcess): string {
 }
 
 /**
- * Busca processos na TI (dossiê + endpoints auxiliares) e grava em Process vinculados ao cliente do painel.
+ * Tenta extrair processos do objeto do cliente TI (GET /clientes/{id}).
+ * NOTA: A API da TI não possui endpoint dedicado de processos — processos chegam
+ * via webhook publications.created. Esta função apenas extrai dados que a TI
+ * eventualmente embute no objeto do cliente.
  */
 export async function importProcessesFromTramitacaoForPainelClient(
   organizationId: string,
@@ -76,29 +78,35 @@ export async function importProcessesFromTramitacaoForPainelClient(
     return { imported: 0, updated: 0, totalFromTi: 0 };
   }
 
-  let merged: Record<string, unknown> = {
-    ...(typeof tiCustomer === "object" && tiCustomer !== null ? (tiCustomer as object) : {}),
-  };
-  let list = collectProcessesFromTICustomer(merged);
+  // Coleta processos embutidos no objeto do cliente (lista ou GET /clientes/{id})
+  const fromObj = collectProcessesFromTICustomer(
+    typeof tiCustomer === "object" && tiCustomer !== null
+      ? (tiCustomer as Record<string, unknown>)
+      : {}
+  );
 
-  if (list.length === 0) {
-    try {
-      const fat = await tiFetchCustomerPayloadForProcesses(organizationId, base.id);
-      merged = { ...merged, ...fat };
-      list = collectProcessesFromTICustomer(merged);
-    } catch {
-      /* dossiê / include indisponível */
-    }
+  // Tenta GET /clientes/{id} (único endpoint válido da TI para clientes)
+  let fromDossier: TIProcess[] = [];
+  try {
+    const fat = await tiFetchCustomerPayloadForProcesses(organizationId, base.id);
+    fromDossier = collectProcessesFromTICustomer(fat);
+  } catch {
+    // endpoint indisponível
   }
 
-  if (list.length === 0) {
-    try {
-      const extra = await tiFetchProcessesForCustomer(organizationId, base.id);
-      if (extra.length > 0) list = extra;
-    } catch {
-      /* endpoints opcionais */
-    }
+  // Deduplica por número de processo
+  const seen = new Set<string>();
+  const list: TIProcess[] = [];
+  for (const p of [...fromObj, ...fromDossier]) {
+    const key = (p.numero_processo_com_mascara ?? p.numero_processo ?? "")
+      .replace(/\D/g, "")
+      .slice(0, 20);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    list.push(p);
   }
+
+  if (list.length === 0) return { imported: 0, updated: 0, totalFromTi: 0 };
 
   let imported = 0;
   let updated = 0;

@@ -9,6 +9,112 @@ import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { emit } from "@/lib/sse-emitter";
 import { resolveCredential } from "@/lib/credentials";
 
+// Tempo de inatividade do operador (sem mensagens/ações) após o qual a IA
+// volta a responder automaticamente, mesmo que tenha sido pausada/transferida.
+const AI_REACTIVATION_IDLE_MS = 2 * 60 * 60_000; // 2 horas
+
+// Tempo de espera por mensagens adicionais do cliente antes de acionar a IA.
+// Evita respostas separadas quando o cliente manda várias mensagens seguidas
+// (ex: "Ola" e depois "tudo bem?") — tudo é agrupado em uma única chamada à IA.
+const AI_DEBOUNCE_MS = 8_000;
+
+type PendingBatch = {
+  timer: ReturnType<typeof setTimeout>;
+  contents: string[];
+  hasMedia: boolean;
+  firstMessageCreatedAt: Date;
+  lastMessageId: string;
+  phoneNumber: string;
+  chatLid: string | null | undefined;
+  orgId: string;
+  conversationId: string;
+};
+
+// Mapa em memória (processo único via pm2 fork) — agrupa mensagens por conversa
+// que chegam em sequência rápida antes de chamar a IA.
+const pendingAIBatches = new Map<string, PendingBatch>();
+
+async function runAIPipeline(batch: PendingBatch) {
+  const { orgId, conversationId, phoneNumber, chatLid, hasMedia, firstMessageCreatedAt, lastMessageId } = batch;
+  const combinedContent = batch.contents.join("\n");
+
+  console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}... (lote de ${batch.contents.length})`);
+  let aiResult: Awaited<ReturnType<typeof processIncomingMessage>> = null;
+  let aiError: Error | null = null;
+  try {
+    aiResult = await processIncomingMessage(orgId, conversationId, combinedContent, hasMedia, lastMessageId);
+  } catch (err) {
+    aiError = err as Error;
+    console.error(`[Webhook] processIncomingMessage falhou:`, aiError.message);
+  }
+
+  if (!aiResult) {
+    console.log(`[Webhook] AI não retornou resultado (Configuração inativa ou erro no provider).`);
+
+    const preview = combinedContent.length > 80 ? combinedContent.slice(0, 80) + "…" : combinedContent;
+    await prisma.notification.create({
+      data: {
+        organizationId: orgId,
+        type: "NEW_MESSAGE",
+        title: "IA não respondeu — verificar conversa",
+        message: `Cliente ${phoneNumber} enviou: "${preview}". A IA não retornou resposta${aiError ? ` (${aiError.message})` : ""}.`,
+        metadata: { conversationId, error: aiError?.message ?? null },
+      },
+    }).catch(e => console.error("[webhook] falha ao criar notification:", e));
+
+    return;
+  }
+
+  if (aiResult?.content) {
+    // Verifica se o operador respondeu enquanto a IA estava processando
+    const convAfterAI = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { operatorLastMessageAt: true },
+    });
+
+    const operatorRespondedDuringAI =
+      convAfterAI?.operatorLastMessageAt &&
+      convAfterAI.operatorLastMessageAt > firstMessageCreatedAt;
+
+    if (operatorRespondedDuringAI) {
+      console.log(`[Webhook] AI bloqueada para ${phoneNumber}: operador respondeu durante processamento.`);
+      return;
+    }
+
+    // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
+    const recentAiReply = await prisma.message.findFirst({
+      where: {
+        conversationId,
+        isAI: true,
+        createdAt: { gte: firstMessageCreatedAt },
+      },
+      select: { id: true },
+    });
+    if (recentAiReply) {
+      console.log(`[Webhook] Resposta da IA suprimida para ${phoneNumber}: já foi respondido nos últimos 15s.`);
+      return;
+    }
+
+    const aiMsg = await prisma.message.create({
+      data: {
+        conversationId,
+        content: aiResult.content,
+        direction: "OUTBOUND",
+        status: "SENT",
+        isAI: true,
+      },
+    });
+
+    emit(orgId, "message", { conversationId, message: aiMsg });
+
+    try {
+      await sendWhatsAppMessage(orgId, phoneNumber, aiResult.content, chatLid);
+    } catch (err) {
+      console.error("[webhook] Falha ao enviar mensagem WhatsApp:", (err as Error).message);
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   const orgSlug = req.nextUrl.searchParams.get("org");
   if (!orgSlug) return NextResponse.json({ error: "org é obrigatório" }, { status: 400 });
@@ -184,22 +290,27 @@ export async function POST(req: NextRequest) {
   if (parsed.fromMe) {
     const cmd = messageContent.trim();
 
-    // Echo da própria IA — escopo: somente mensagens IA na MESMA conversa, janela de 60s.
-    // Comandos "#" e "." são checados ANTES para garantir que nunca sejam tratados
-    // como echo (mesmo no caso improvável da IA ter enviado esse texto).
-    const isCommand = cmd === "#" || cmd === ".";
+    // Detecta echo: Z-API devolve como fromMe=true qualquer mensagem enviada pelo número
+    // conectado (IA ou operador). Se a mensagem já está salva como OUTBOUND nos últimos
+    // 3 minutos, é echo — ignora sem tocar no aiEnabled.
+    // Comandos ".." e "." são verificados ANTES para nunca serem tratados como echo.
+    const isCommand = cmd === ".." || cmd === ".";
     if (!isCommand) {
-      const aiEchoWindow = new Date(Date.now() - 60_000);
-      const recentAiMessages = await prisma.message.findMany({
-        where: { conversationId: conversation.id, isAI: true, createdAt: { gte: aiEchoWindow } },
+      const echoWindow = new Date(Date.now() - 3 * 60_000);
+      const recentOutbound = await prisma.message.findMany({
+        where: { conversationId: conversation.id, direction: "OUTBOUND", createdAt: { gte: echoWindow } },
         select: { content: true },
       });
-      const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim();
+      const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
       const normalizedIncoming = normalizeMsg(messageContent);
-      const isAiEcho = recentAiMessages.some(m => normalizeMsg(m.content) === normalizedIncoming);
-      if (isAiEcho) {
-        console.log(`[webhook] echo da IA ignorado (conv=${conversation.id})`);
-        return NextResponse.json({ ok: true, ignored: "ai_echo" });
+      // Aceita match parcial (primeiros 80 chars) para tolerar truncamento do Z-API
+      const isEcho = recentOutbound.some(m => {
+        const n = normalizeMsg(m.content);
+        return n === normalizedIncoming || n.startsWith(normalizedIncoming.slice(0, 80)) || normalizedIncoming.startsWith(n.slice(0, 80));
+      });
+      if (isEcho) {
+        console.log(`[webhook] echo outbound ignorado (conv=${conversation.id})`);
+        return NextResponse.json({ ok: true, ignored: "outbound_echo" });
       }
     }
 
@@ -213,9 +324,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "ai_resumed" });
     }
 
-    // "#" ou palavra-chave customizada → pausa IA, não salva nem aparece no chat
+    // ".." ou palavra-chave customizada → pausa IA, não salva nem aparece no chat
     const customKeyword = (aiConfig as any)?.operatorKeyword?.trim();
-    if (cmd === "#" || (customKeyword && cmd.toLowerCase() === customKeyword.toLowerCase())) {
+    if (cmd === ".." || (customKeyword && cmd.toLowerCase() === customKeyword.toLowerCase())) {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: { aiEnabled: false, operatorLastMessageAt: new Date() },
@@ -323,90 +434,54 @@ export async function POST(req: NextRequest) {
   });
 
   if (!freshConv?.aiEnabled) {
-    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
-    return NextResponse.json({ ok: true, ai: "disabled" });
-  }
+    // Reativa a IA automaticamente se o operador ficou muito tempo sem interagir
+    // (IA pausada/transferida para humano e ninguém respondeu nesse intervalo).
+    const lastOperatorAction = freshConv?.operatorLastMessageAt;
+    const inactiveForTooLong =
+      !lastOperatorAction || lastOperatorAction.getTime() < Date.now() - AI_REACTIVATION_IDLE_MS;
 
-  console.log(`[Webhook] Processando mensagem com IA para ${phoneNumber}...`);
-  let aiResult: Awaited<ReturnType<typeof processIncomingMessage>> = null;
-  let aiError: Error | null = null;
-  try {
-    aiResult = await processIncomingMessage(org.id, conversation.id, messageContent, hasMedia, msg.id);
-  } catch (err) {
-    aiError = err as Error;
-    console.error(`[Webhook] processIncomingMessage falhou:`, aiError.message);
-  }
-
-  if (!aiResult) {
-    console.log(`[Webhook] AI não retornou resultado (Configuração inativa ou erro no provider).`);
-
-    // Notifica operador para que a mensagem do cliente não fique sem resposta silenciosamente.
-    // Só cria a notificação se a IA estava ativa (caso contrário, é normal não responder).
-    if (freshConv?.aiEnabled) {
-      const preview = messageContent.length > 80 ? messageContent.slice(0, 80) + "…" : messageContent;
-      await prisma.notification.create({
-        data: {
-          organizationId: org.id,
-          type: "NEW_MESSAGE",
-          title: "IA não respondeu — verificar conversa",
-          message: `Cliente ${phoneNumber} enviou: "${preview}". A IA não retornou resposta${aiError ? ` (${aiError.message})` : ""}.`,
-          metadata: { conversationId: conversation.id, error: aiError?.message ?? null },
-        },
-      }).catch(e => console.error("[webhook] falha ao criar notification:", e));
+    if (!inactiveForTooLong) {
+      console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
+      return NextResponse.json({ ok: true, ai: "disabled" });
     }
 
-    return NextResponse.json({ ok: true, ai: "no_result" });
-  }
-
-  if (aiResult?.content) {
-    // Verifica se o operador respondeu enquanto a IA estava processando
-    const convAfterAI = await prisma.conversation.findUnique({
+    console.log(`[Webhook] IA reativada para ${phoneNumber}: operador inativo há mais de ${AI_REACTIVATION_IDLE_MS / 60_000} min.`);
+    await prisma.conversation.update({
       where: { id: conversation.id },
-      select: { aiEnabled: true, operatorLastMessageAt: true },
+      data: { aiEnabled: true },
     });
-
-    const operatorRespondedDuringAI =
-      convAfterAI?.operatorLastMessageAt &&
-      convAfterAI.operatorLastMessageAt > clientMessageReceivedAt;
-
-    if (!convAfterAI?.aiEnabled || operatorRespondedDuringAI) {
-      console.log(`[Webhook] AI bloqueada para ${phoneNumber}: operador respondeu durante processamento.`);
-      return NextResponse.json({ ok: true, ai: "blocked_by_operator" });
-    }
-
-    // Dedup de resposta da IA: evita envio duplo quando dois webhooks chegam em paralelo
-    // (ex: cliente envia PDF + ZIP juntos — Z-API dispara dois eventos quase simultâneos).
-    const recentAiReply = await prisma.message.findFirst({
-      where: {
-        conversationId: conversation.id,
-        isAI: true,
-        createdAt: { gte: new Date(clientMessageReceivedAt.getTime() - 15_000) },
-      },
-      select: { id: true },
-    });
-    if (recentAiReply) {
-      console.log(`[Webhook] Resposta da IA suprimida para ${phoneNumber}: já foi respondido nos últimos 15s.`);
-      return NextResponse.json({ ok: true, ai: "suppressed_duplicate" });
-    }
-
-    const aiMsg = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: aiResult.content,
-        direction: "OUTBOUND",
-        status: "SENT",
-        isAI: true,
-      },
-    });
-
-    emit(org.id, "message", { conversationId: conversation.id, message: aiMsg });
-
-    try {
-      await sendWhatsAppMessage(org.id, phoneNumber, aiResult.content, chatLid);
-    } catch (err) {
-      console.error("[webhook] Falha ao enviar mensagem WhatsApp:", (err as Error).message);
-    }
   }
 
-  return NextResponse.json({ ok: true });
+  // ── Agrupa mensagens em sequência rápida (debounce) ───────────────────────
+  // Se o cliente mandar várias mensagens seguidas (ex: "Ola" e depois "tudo bem?"),
+  // espera um pouco antes de chamar a IA para responder tudo de uma vez.
+  const existingBatch = pendingAIBatches.get(conversation.id);
+  if (existingBatch) {
+    clearTimeout(existingBatch.timer);
+    existingBatch.contents.push(messageContent);
+    existingBatch.hasMedia = existingBatch.hasMedia || hasMedia;
+    existingBatch.lastMessageId = msg.id;
+    existingBatch.timer = setTimeout(() => {
+      pendingAIBatches.delete(conversation.id);
+      runAIPipeline(existingBatch).catch(err => console.error("[webhook] runAIPipeline falhou:", err));
+    }, AI_DEBOUNCE_MS);
+  } else {
+    const batch: PendingBatch = {
+      timer: setTimeout(() => {
+        pendingAIBatches.delete(conversation.id);
+        runAIPipeline(batch).catch(err => console.error("[webhook] runAIPipeline falhou:", err));
+      }, AI_DEBOUNCE_MS),
+      contents: [messageContent],
+      hasMedia,
+      firstMessageCreatedAt: clientMessageReceivedAt,
+      lastMessageId: msg.id,
+      phoneNumber,
+      chatLid,
+      orgId: org.id,
+      conversationId: conversation.id,
+    };
+    pendingAIBatches.set(conversation.id, batch);
+  }
+
+  return NextResponse.json({ ok: true, ai: "queued" });
 }

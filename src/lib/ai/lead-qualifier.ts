@@ -2,8 +2,47 @@ import { prisma } from "@/lib/prisma";
 import { resolveCredential } from "@/lib/credentials";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { runAIChat } from "./ai-service";
-import type { AIMessage, LeadChatMode } from "./ai-service";
+import type { AIMessage } from "./ai-service";
 import { isPhoneBlocked } from "@/lib/blocked-phones";
+import { SHEILA_PROMPT, SHEILA_PROMPT_NAME } from "./default-prompt";
+
+// Cache para evitar update no banco a cada mensagem (TTL de 10 min por org)
+const promptSyncCache = new Map<string, number>();
+const PROMPT_SYNC_TTL = 10 * 60 * 1000;
+
+async function syncDefaultPrompt(organizationId: string): Promise<void> {
+  const now = Date.now();
+  const last = promptSyncCache.get(organizationId) ?? 0;
+  if (now - last < PROMPT_SYNC_TTL) return;
+  promptSyncCache.set(organizationId, now);
+
+  const existing = await prisma.promptTemplate.findFirst({
+    where: { organizationId, name: SHEILA_PROMPT_NAME },
+    select: { id: true, content: true, isDefault: true },
+  });
+
+  if (!existing) {
+    await prisma.promptTemplate.updateMany({
+      where: { organizationId, isDefault: true },
+      data: { isDefault: false },
+    });
+    await prisma.promptTemplate.create({
+      data: {
+        name: SHEILA_PROMPT_NAME,
+        description: "Prompt completo de triagem para leads via WhatsApp. Atua nas áreas Trabalhista, Acidente de Trabalho e Previdenciário/INSS.",
+        content: SHEILA_PROMPT,
+        isSystem: false,
+        isDefault: true,
+        organizationId,
+      },
+    });
+  } else if (existing.content !== SHEILA_PROMPT || !existing.isDefault) {
+    await prisma.promptTemplate.update({
+      where: { id: existing.id },
+      data: { content: SHEILA_PROMPT, isDefault: true },
+    });
+  }
+}
 
 async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const aiConfig = await prisma.aIConfig.findUnique({ where: { organizationId } });
@@ -101,6 +140,10 @@ export async function processIncomingMessage(
   hasMedia = false,
   currentMessageId?: string
 ) {
+  // Garante que o prompt padrão no banco está atualizado antes de resolver a config de IA.
+  // Usa cache de 10 min — só toca o banco na primeira chamada do período.
+  await syncDefaultPrompt(organizationId).catch(() => {});
+
   const convInclude = {
     messages: { orderBy: { createdAt: "desc" as const }, take: 60 },
     lead: { include: { stage: true } },
@@ -141,6 +184,32 @@ export async function processIncomingMessage(
     }
   }
 
+  // ── Vinculação antecipada por CPF na mensagem atual ────────────────────────
+  // Se a conversa ainda não está vinculada a um cliente mas o usuário informou
+  // um CPF nesta mensagem, faz o lookup antes de chamar a IA para que ela já
+  // receba o contexto correto e possa responder com os dados do processo.
+  if (!conversation.clientId) {
+    const cpfInMessage = userMessage.match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/);
+    if (cpfInMessage) {
+      const cpfClean = cpfInMessage[0].replace(/\D/g, "");
+      const clientByCPF = await prisma.client.findFirst({
+        where: { organizationId, cpf: cpfClean },
+        select: { id: true },
+      });
+      if (clientByCPF) {
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { clientId: clientByCPF.id },
+        });
+        conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: convInclude,
+        });
+        if (!conversation) return null;
+      }
+    }
+  }
+
   // ── Contexto do cliente (se conversa já vinculada a um cliente) ───────────
   let clientContext: string | undefined;
   if (conversation.clientId) {
@@ -162,32 +231,44 @@ export async function processIncomingMessage(
     });
 
     if (client) {
-      const processLines = client.processes.map(p => {
+      const processLines = client.processes.map((p: any) => {
         const movimento = p.lastMovement
           ? `\n   Última movimentação (${p.lastMovementAt?.toLocaleDateString("pt-BR") ?? "?"}): ${p.lastMovement}`
           : "";
+        const audiencia = p.nextHearing
+          ? `\n   Próxima audiência: ${new Date(p.nextHearing).toLocaleDateString("pt-BR")}`
+          : "";
+        const prazos = p.deadlines?.length
+          ? `\n   Prazos pendentes: ${p.deadlines.map((d: any) => `${d.description ?? d.type} até ${new Date(d.dueDate).toLocaleDateString("pt-BR")}`).join("; ")}`
+          : "";
         return [
-          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}`,
+          `- Proc. ${p.number}${p.title ? ` | ${p.title}` : ""}${p.court ? ` | ${p.court}` : ""}${p.legalArea ? ` | ${p.legalArea}` : ""}`,
           movimento,
+          audiencia,
+          prazos,
           "",
         ].filter(Boolean).join("");
       }).join("\n");
 
-      // Entradas do card liberadas pelo advogado para o cliente ver
+      // Entradas do card do processo (mesma fonte da página /processos)
+      // shareWithClient controla envio proativo, não acesso quando o cliente pergunta
       const caseCard = await prisma.clientCaseCard.findUnique({
         where: { clientId: conversation.clientId! },
         include: {
           entries: {
-            where: { shareWithClient: true },
             orderBy: { createdAt: "desc" },
-            take: 10,
+            take: 20,
           },
         },
       });
+      const sourceLabel: Record<string, string> = { DJEN: "DJEN", PJE: "PJe", COMMENT: "Advogado", SYSTEM: "Sistema" };
       const cardLines = caseCard?.entries.length
         ? caseCard.entries
-            .map(e => `[${e.createdAt.toLocaleDateString("pt-BR")}] ${e.content}`)
-            .join("\n")
+            .map((e: any) => {
+              const tag = sourceLabel[e.source as string] ?? e.source;
+              return `[${tag} · ${new Date(e.createdAt).toLocaleDateString("pt-BR")}] ${e.content}`;
+            })
+            .join("\n---\n")
         : null;
 
       clientContext = [
@@ -199,8 +280,8 @@ export async function processIncomingMessage(
           ? `\nProcessos ativos:\n${processLines}`
           : "\nNenhum processo ativo cadastrado.",
         cardLines
-          ? `\nInformações do escritório:\n${cardLines}`
-          : "",
+          ? `\nHistórico de movimentações e atualizações do processo (USE ESTES DADOS para responder perguntas sobre andamento, situação ou movimentações):\n${cardLines}`
+          : "\nNenhuma movimentação registrada no card do processo ainda.",
       ].filter(Boolean).join("\n");
     }
   }
@@ -216,11 +297,13 @@ export async function processIncomingMessage(
   // Detecta se o operador humano interveio (mensagem OUTBOUND não gerada pela IA)
   const operatorIntervened = priorMessages.some(m => m.direction === "OUTBOUND" && !m.isAI);
 
-  // Monta histórico completo. Mensagens do operador humano entram como "assistant" mas com
-  // prefixo "[Atendente humano]" para a IA não confundir com respostas dela mesma.
+  // Monta histórico completo.
+  // Mensagens da IA → role "assistant" (sem prefixo) — são as respostas da própria IA.
+  // Mensagens do operador humano → role "assistant" com prefixo bem explícito para que a
+  // IA saiba que NÃO foi ela que escreveu, e não tente continuar ou se apropriar desse conteúdo.
   const history: AIMessage[] = priorMessages.map(m => {
     if (m.direction === "OUTBOUND" && !m.isAI) {
-      return { role: "assistant" as const, content: `[Atendente humano]: ${m.content}` };
+      return { role: "assistant" as const, content: `⚠️ [MENSAGEM ENVIADA PELA DRA. SHEILA — NÃO FOI VOCÊ QUE ESCREVEU ISSO]: ${m.content}` };
     }
     return {
       role: m.direction === "INBOUND" ? "user" as const : "assistant" as const,
@@ -228,51 +311,29 @@ export async function processIncomingMessage(
     };
   });
 
-  const inbounds = chronological.filter(m => m.direction === "INBOUND");
-  const hadAiReply = chronological.some(m => m.direction === "OUTBOUND" && m.isAI);
-  const allInboundText = inbounds.map(m => m.content).join("\n");
   const lead = conversation.lead;
   const nameLooksPhone =
     !lead?.name || /^\+?[\d\s().-]{10,}$/.test(lead.name.replace(/\s/g, ""));
 
-  const textSuggestsOngoing = (t: string) =>
-    /dra\.?|doutor|doutora|dra\s|doutor\s|sra\.?|sr\.?|oab|quando\s+o|valor|pagamento|processo|honor|já\s|retorno|acordo|escritór|escrit|advogad|parcela|me\s+lig|falar com/i.test(
-      t
-    );
+  // Nome a usar na saudação: prioridade Cliente cadastrado > Lead (se não for telefone)
+  let contactName: string | undefined;
+  if (conversation.clientId) {
+    const linkedClient = await prisma.client.findUnique({
+      where: { id: conversation.clientId },
+      select: { name: true },
+    });
+    if (linkedClient?.name) contactName = linkedClient.name;
+  }
+  if (!contactName && lead?.name && !nameLooksPhone) {
+    contactName = lead.name;
+  }
 
-  const leadMode: LeadChatMode =
-    hadAiReply ||
-    (lead && !nameLooksPhone) ||
-    textSuggestsOngoing(userMessage) ||
-    textSuggestsOngoing(allInboundText)
-      ? "established"
-      : "cold";
-
-  // Os cenários de "semContexto" e "conversaJaRolando" agora são tratados
-  // diretamente pela IA, que usará o prompt do sistema para avisar que é a
-  // assistente virtual e que não tem acesso ao histórico anterior.
-
-  const result = await runAIChat(config, history, userMessage, {
+  let result = await runAIChat(config, history, userMessage, {
     clientContext,
-    leadMode,
     hasMedia,
     operatorIntervened,
+    contactName,
   });
-
-  // ── Vincula conversa ao cliente pelo CPF (se ainda não vinculada) ─────────
-  if (!conversation.clientId && result.qualifiedData?.cpf) {
-    const cpfClean = result.qualifiedData.cpf.replace(/\D/g, "");
-    const clientByCPF = await prisma.client.findFirst({
-      where: { organizationId, cpf: cpfClean },
-      select: { id: true },
-    });
-    if (clientByCPF) {
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { clientId: clientByCPF.id },
-      });
-    }
-  }
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────
   if (conversation.leadId && result.qualifiedData) {
@@ -356,6 +417,17 @@ export async function processIncomingMessage(
         metadata: { conversationId, leadId: conversation.leadId },
       },
     });
+  }
+
+  // Remove prefixos internos caso a IA copie o formato do histórico na resposta
+  if (result?.content) {
+    result = {
+      ...result,
+      content: result.content
+        .replace(/^⚠️\s*\[MENSAGEM ENVIADA PELA DRA\. SHEILA[^\]]*\]:\s*/i, "")
+        .replace(/^\[Atendente humano\]:\s*/i, "")
+        .trimStart(),
+    };
   }
 
   return result;

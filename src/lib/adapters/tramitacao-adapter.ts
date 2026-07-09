@@ -382,50 +382,61 @@ function collectProcessesFromNestedArrays(payload: Record<string, unknown>): TIP
   return [];
 }
 
-/** Tentativas best-effort: dossiê completo + caminhos legados (404 = ignora). */
+/**
+ * Tenta endpoints dedicados de processos da TI sem fazer chamada redundante ao dossiê.
+ * (O dossiê já é buscado por tiFetchCustomerPayloadForProcesses em paralelo no caller.)
+ */
 export async function tiFetchProcessesForCustomer(
   organizationId: string,
   tiCustomerId: number
 ): Promise<TIProcess[]> {
-  const fat = await tiFetchCustomerPayloadForProcesses(organizationId, tiCustomerId);
-  let out = collectProcessesFromTICustomer(fat);
-  if (out.length > 0) return out;
-  out = collectProcessesFromNestedArrays(fat);
-  if (out.length > 0) return out;
-
   const headers = await getHeaders(organizationId);
   const baseUrl = await getBaseUrl(organizationId);
 
   const paths = [
     `/clientes/${tiCustomerId}/processos`,
-    `/clientes/${tiCustomerId}/processos?page=1&per_page=100`,
-    `/processos?customer_id=${tiCustomerId}`,
+    `/clientes/${tiCustomerId}/processos?page=1&per_page=500`,
+    `/clientes/${tiCustomerId}/processos?per_page=500`,
+    `/processos?customer_id=${tiCustomerId}&per_page=500`,
     `/processos?customer_id=${tiCustomerId}&per_page=100`,
+    `/processos?customer_id=${tiCustomerId}`,
+    `/processos?cliente_id=${tiCustomerId}&per_page=500`,
     `/processos?cliente_id=${tiCustomerId}`,
+    `/lawsuits?customer_id=${tiCustomerId}`,
+    `/casos?customer_id=${tiCustomerId}`,
+    `/monitoramentos?customer_id=${tiCustomerId}`,
   ];
 
-  for (const path of paths) {
-    try {
-      const res = await fetch(`${baseUrl}${path}`, { headers });
-      if (!res.ok) continue;
-      const json: unknown = await res.json().catch(() => null);
-      const rec = asRecord(json);
-      if (!rec) continue;
-      const arr =
-        rec.processes ??
-        rec.processos ??
-        (Array.isArray(rec.data) ? rec.data : null) ??
-        (Array.isArray(json) ? json : null);
-      if (Array.isArray(arr) && arr.length > 0) {
-        const merged = collectProcessesFromTICustomer({ processes: arr });
-        if (merged.length > 0) return merged;
-      }
-    } catch {
-      /* próximo path */
-    }
-  }
+  const seen = new Set<string>();
+  const out: TIProcess[] = [];
 
-  return [];
+  const tryPush = (arr: unknown) => {
+    if (!Array.isArray(arr)) return;
+    const parsed = collectProcessesFromTICustomer({ processes: arr });
+    for (const p of parsed) {
+      const key = (p.numero_processo_com_mascara ?? p.numero_processo ?? "").replace(/\D/g, "").slice(0, 20);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+  };
+
+  await Promise.allSettled(
+    paths.map(async path => {
+      try {
+        const res = await fetch(`${baseUrl}${path}`, { headers });
+        if (!res.ok) return;
+        const json: unknown = await res.json().catch(() => null);
+        const rec = asRecord(json);
+        if (!rec) return;
+        tryPush(rec.processes ?? rec.processos ?? rec.data ?? (Array.isArray(json) ? json : null));
+      } catch {
+        /* endpoint não disponível */
+      }
+    })
+  );
+
+  return out;
 }
 
 // ─── Funções públicas ─────────────────────────────────────────────────────────
