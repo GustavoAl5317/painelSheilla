@@ -26,30 +26,6 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
-export const UNCLEAR_CONTEXT_FALLBACK_REPLY =
-  "Olá! Recebi sua mensagem Nossa equipe já foi notificada e a equipe da Dra Sheila Araújo responderá em breve.";
-
-/** Respostas típicas quando o modelo “não entende” e pede dados em vez de encaminhar. */
-function replySoundsLikeContextConfusion(assistantReply: string): boolean {
-  const t = assistantReply.toLowerCase();
-  return (
-    /não consegui identificar|nao consegui identificar|não consigo identificar|nao consigo identificar/.test(t) ||
-    /não consegui entender|nao consegui entender/.test(t) ||
-    /novo caso ou.*atendimento anterior|atendimento anterior.*novo caso/i.test(assistantReply) ||
-    (/atendimento anterior/.test(t) && /nome completo/.test(t)) ||
-    (/poderia me informar/.test(t) && (/nome completo/.test(t) || /seu nome/i.test(t))) ||
-    /em contato referente a um novo caso/i.test(t)
-  );
-}
-
-export function shouldUseUnclearContextFallbackReply(
-  clientContext: string | undefined,
-  assistantReply: string
-): boolean {
-  if (clientContext) return false;
-  return replySoundsLikeContextConfusion(assistantReply);
-}
-
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -77,31 +53,20 @@ export async function runAIChat(
 
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
 
-  let cleanContent = responseContent
+  const cleanContent = responseContent
     .replace("[TRANSFERIR_PARA_HUMANO]", "")
     .replace("[TRIAGEM COMPLETA]", "")
     .trim();
 
-  let finalShouldTransfer = shouldTransfer;
-  if (shouldUseUnclearContextFallbackReply(clientContext, cleanContent)) {
-    cleanContent = UNCLEAR_CONTEXT_FALLBACK_REPLY;
-    finalShouldTransfer = true;
-  }
-
   return {
     content: cleanContent,
-    shouldTransferToHuman: finalShouldTransfer,
+    shouldTransferToHuman: shouldTransfer,
     triageComplete,
     qualifiedData,
   };
 }
 
 function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
-  const handoffNoContextRule = `
-REGRA OBRIGATÓRIA — SEM CONTEXTO / CONTINUAÇÃO FORA DO HISTÓRICO:
-- O WhatsApp pode ter mensagens antigas que NÃO aparecem neste histórico. Se a mensagem do cliente parece retorno (documentos, assinatura, "bom dia Dra", agradecimentos de etapa concluída etc.) e você não consegue alinhar com segurança ao fluxo ou aos dados acima, NÃO peça "nome completo", NÃO pergunte se é "novo caso ou atendimento anterior" e NÃO diga que "não consegui identificar".
-- Nessa situação responda APENAS com a frase exata: "${UNCLEAR_CONTEXT_FALLBACK_REPLY}" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra.`;
-
   const firstNameForGreeting = (() => {
     const raw = contactName?.trim();
     if (!raw) return "";
@@ -139,7 +104,7 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
 - NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
 - Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
 - Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.${handoffNoContextRule}`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
@@ -358,29 +323,65 @@ Tom: cordial, português brasileiro, sem jargão jurídico pesado. Máximo 4 fra
  * Baixa um áudio de qualquer URL e transcreve via OpenAI Whisper.
  * Retorna o texto transcrito ou null se falhar.
  */
-export async function transcribeAudio(audioUrl: string, apiKey: string): Promise<string | null> {
+export async function transcribeAudio(audioUrl: string | undefined, apiKey: string, base64Media?: string): Promise<string | null> {
+  console.log(`[transcribeAudio] Inciando transcrição...`);
   try {
-    const audioResponse = await fetch(audioUrl);
-    if (!audioResponse.ok) return null;
+    let audioBuffer: ArrayBuffer;
+    
+    if (base64Media) {
+      console.log(`[transcribeAudio] Usando áudio em base64 recebido no webhook.`);
+      const binaryString = atob(base64Media);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      audioBuffer = bytes.buffer;
+    } else if (audioUrl) {
+      console.log(`[transcribeAudio] Fazendo download do áudio de: ${audioUrl.slice(0, 100)}...`);
+      const audioResponse = await fetch(audioUrl);
+      if (!audioResponse.ok) {
+        console.error(`[transcribeAudio] Falha ao baixar áudio: ${audioResponse.status} ${audioResponse.statusText}`);
+        return null;
+      }
+      audioBuffer = await audioResponse.arrayBuffer();
+    } else {
+      console.error(`[transcribeAudio] Nenhum audioUrl ou base64Media fornecido.`);
+      return null;
+    }
 
-    const audioBuffer = await audioResponse.arrayBuffer();
+    console.log(`[transcribeAudio] Áudio pronto, tamanho: ${audioBuffer.byteLength} bytes`);
+    
+    // Fallback if Blob constructor in Node drops the filename in FormData
     const audioBlob = new Blob([audioBuffer], { type: "audio/ogg" });
-
     const formData = new FormData();
-    formData.append("file", audioBlob, "audio.ogg");
+    // Try to construct a File object if available (Node 20+), otherwise fallback to Blob
+    if (typeof File !== 'undefined') {
+       formData.append("file", new File([audioBlob], "audio.ogg", { type: "audio/ogg" }));
+    } else {
+       formData.append("file", audioBlob, "audio.ogg");
+    }
+    
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
 
+    console.log("[transcribeAudio] Enviando para OpenAI Whisper...");
     const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: formData,
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[transcribeAudio] Erro na OpenAI: ${res.status} ${res.statusText}`, errorText);
+      return null;
+    }
     const data = await res.json();
+    console.log("[transcribeAudio] Transcrição concluída com sucesso.");
     return typeof data.text === "string" && data.text.trim() ? data.text.trim() : null;
-  } catch {
+  } catch (error: any) {
+    console.error(`[transcribeAudio] Exceção capturada: ${error.message}`);
     return null;
   }
 }
