@@ -233,9 +233,17 @@ export async function POST(req: NextRequest) {
 
   // ── Transcreve áudio / analisa mídia (somente mensagens do cliente) ─────────
   if (!parsed.fromMe) {
-    if (messageType === "AUDIO" && audioUrl && openaiKey) {
-      const transcription = await transcribeAudio(audioUrl, openaiKey);
-      if (transcription) messageContent = transcription;
+    if (messageType === "AUDIO") {
+      if ((audioUrl || parsed.base64Media) && openaiKey) {
+        const transcription = await transcribeAudio(audioUrl, openaiKey, parsed.base64Media);
+        if (transcription) {
+          messageContent = transcription;
+        } else {
+          messageContent = "[O cliente enviou um áudio, mas ocorreu um erro técnico na transcrição. Peça educadamente ao cliente para digitar a mensagem por escrito.]";
+        }
+      } else {
+        messageContent = "[O cliente enviou um áudio, mas a funcionalidade de transcrição não está configurada ou o áudio está indisponível. Peça educadamente ao cliente para digitar a mensagem por escrito.]";
+      }
     } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
       const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
       const mediaType = messageType === "IMAGE" ? "image" : "document";

@@ -342,29 +342,65 @@ Tom: cordial, português brasileiro, sem jargão jurídico pesado. Máximo 4 fra
  * Baixa um áudio de qualquer URL e transcreve via OpenAI Whisper.
  * Retorna o texto transcrito ou null se falhar.
  */
-export async function transcribeAudio(audioUrl: string, apiKey: string): Promise<string | null> {
+export async function transcribeAudio(audioUrl: string | undefined, apiKey: string, base64Media?: string): Promise<string | null> {
+  console.log(`[transcribeAudio] Inciando transcrição...`);
   try {
-    const audioResponse = await fetch(audioUrl);
-    if (!audioResponse.ok) return null;
+    let audioBuffer: ArrayBuffer;
+    
+    if (base64Media) {
+      console.log(`[transcribeAudio] Usando áudio em base64 recebido no webhook.`);
+      const binaryString = atob(base64Media);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      audioBuffer = bytes.buffer;
+    } else if (audioUrl) {
+      console.log(`[transcribeAudio] Fazendo download do áudio de: ${audioUrl.slice(0, 100)}...`);
+      const audioResponse = await fetch(audioUrl);
+      if (!audioResponse.ok) {
+        console.error(`[transcribeAudio] Falha ao baixar áudio: ${audioResponse.status} ${audioResponse.statusText}`);
+        return null;
+      }
+      audioBuffer = await audioResponse.arrayBuffer();
+    } else {
+      console.error(`[transcribeAudio] Nenhum audioUrl ou base64Media fornecido.`);
+      return null;
+    }
 
-    const audioBuffer = await audioResponse.arrayBuffer();
+    console.log(`[transcribeAudio] Áudio pronto, tamanho: ${audioBuffer.byteLength} bytes`);
+    
+    // Fallback if Blob constructor in Node drops the filename in FormData
     const audioBlob = new Blob([audioBuffer], { type: "audio/ogg" });
-
     const formData = new FormData();
-    formData.append("file", audioBlob, "audio.ogg");
+    // Try to construct a File object if available (Node 20+), otherwise fallback to Blob
+    if (typeof File !== 'undefined') {
+       formData.append("file", new File([audioBlob], "audio.ogg", { type: "audio/ogg" }));
+    } else {
+       formData.append("file", audioBlob, "audio.ogg");
+    }
+    
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
 
+    console.log("[transcribeAudio] Enviando para OpenAI Whisper...");
     const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: formData,
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[transcribeAudio] Erro na OpenAI: ${res.status} ${res.statusText}`, errorText);
+      return null;
+    }
     const data = await res.json();
+    console.log("[transcribeAudio] Transcrição concluída com sucesso.");
     return typeof data.text === "string" && data.text.trim() ? data.text.trim() : null;
-  } catch {
+  } catch (error: any) {
+    console.error(`[transcribeAudio] Exceção capturada: ${error.message}`);
     return null;
   }
 }

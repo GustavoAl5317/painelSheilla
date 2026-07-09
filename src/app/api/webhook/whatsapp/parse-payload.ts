@@ -14,6 +14,7 @@ type ParsedInbound = {
   imageUrl?: string;
   documentUrl?: string;
   documentName?: string;
+  base64Media?: string;
 };
 
 function str(v: unknown): string | null {
@@ -199,6 +200,8 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const isImage = !isAudio && (body.type === "image" || !!imageUrl);
   const isDocument = !isAudio && !isImage && (body.type === "document" || !!documentUrl);
   const externalMessageId = str(body.messageId) ?? (typeof body.id === "string" || typeof body.id === "number" ? String(body.id) : null);
+  
+  const base64Media = (str((body.message as any)?.base64) ?? str((body as any)?.base64)) || undefined;
 
   return {
     phone,
@@ -211,5 +214,6 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     imageUrl,
     documentUrl,
     documentName,
+    base64Media,
   };
 }
