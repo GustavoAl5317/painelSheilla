@@ -164,50 +164,59 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     "";
 
   const image = body.image as { caption?: string; imageUrl?: string } | undefined;
-  let imageUrl: string | undefined;
-  if (image?.imageUrl) {
-    imageUrl = image.imageUrl;
-    // caption pode ser string vazia — usa placeholder para garantir que não seja ignorado
-    if (!content.trim()) content = str(image.caption) || "[Imagem recebida]";
+  const evImage = (msgObj as any)?.imageMessage;
+  let imageUrl: string | undefined = str(image?.imageUrl) ?? str(evImage?.url) ?? undefined;
+  let caption = str(image?.caption) ?? str(evImage?.caption);
+  if (imageUrl || evImage) {
+    if (!content.trim()) content = caption || "[Imagem recebida]";
   }
 
   // Vídeos são ignorados: a IA não consegue analisar vídeo e o webhook duplicado
   // causa race condition com as mensagens de texto que chegam junto.
   const video = body.video as { caption?: string; videoUrl?: string } | undefined;
-  if (video?.videoUrl || body.type === "video") {
+  const evVideo = (msgObj as any)?.videoMessage;
+  if (video?.videoUrl || evVideo?.url || body.type === "video") {
     return { skip: true, reason: "video_not_supported" };
   }
 
   const doc = body.document as { fileName?: string; documentUrl?: string } | undefined;
-  let documentUrl: string | undefined;
-  let documentName: string | undefined;
-  if (doc?.documentUrl) {
-    documentUrl = doc.documentUrl;
-    documentName = str(doc.fileName) ?? "arquivo";
+  const evDoc = (msgObj as any)?.documentMessage;
+  let documentUrl: string | undefined = str(doc?.documentUrl) ?? str(evDoc?.url) ?? undefined;
+  let documentName: string | undefined = str(doc?.fileName) ?? str(evDoc?.fileName) ?? "arquivo";
+  if (documentUrl || evDoc) {
     if (!content.trim()) content = `[Documento: ${documentName}]`;
   }
 
   // Áudio — Evolution API: body.message.audioMessage.url | body.message.pttMessage.url
   // Outros: body.audio.audioUrl | body.audio.pttUrl | body.pttUrl
   let audioUrl: string | undefined;
+  const evAudio = (msgObj as any)?.audioMessage ?? (msgObj as any)?.pttMessage;
   if (!content) {
     const audio = body.audio as { audioUrl?: string; pttUrl?: string } | undefined;
     const pttUrl = str((body as any).pttUrl);
-    const evAudio = (msgObj as any)?.audioMessage?.url ?? (msgObj as any)?.pttMessage?.url;
-    audioUrl = str(audio?.audioUrl) ?? str(audio?.pttUrl) ?? pttUrl ?? str(evAudio) ?? undefined;
-    content = audioUrl ? "[Áudio recebido]" : "";
+    audioUrl = str(audio?.audioUrl) ?? str(audio?.pttUrl) ?? pttUrl ?? str(evAudio?.url) ?? undefined;
+    if (audioUrl || evAudio) {
+      content = "[Áudio recebido]";
+    }
   }
 
   if (!content?.trim()) {
     return { skip: true, reason: "no_content" };
   }
 
-  const isAudio = !!(audioUrl || body.type === "audio" || body.type === "ptt");
-  const isImage = !isAudio && (body.type === "image" || !!imageUrl);
-  const isDocument = !isAudio && !isImage && (body.type === "document" || !!documentUrl);
+  const base64Media = (
+    str(msgObj?.base64) ?? 
+    str((body as any)?.data?.message?.base64) ?? 
+    str((body as any)?.data?.base64) ?? 
+    str((body.message as any)?.base64) ?? 
+    str((body as any)?.base64)
+  ) || undefined;
+
+  const evType = str((body as any)?.data?.messageType);
+  const isAudio = !!(audioUrl || evAudio || body.type === "audio" || body.type === "ptt" || evType === "audioMessage");
+  const isImage = !isAudio && !!(imageUrl || evImage || body.type === "image" || evType === "imageMessage");
+  const isDocument = !isAudio && !isImage && !!(documentUrl || evDoc || body.type === "document" || evType === "documentMessage");
   const externalMessageId = str(body.messageId) ?? (typeof body.id === "string" || typeof body.id === "number" ? String(body.id) : null);
-  
-  const base64Media = (str((body.message as any)?.base64) ?? str((body as any)?.base64)) || undefined;
 
   return {
     phone,
