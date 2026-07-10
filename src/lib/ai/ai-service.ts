@@ -392,20 +392,35 @@ export async function analyzeMediaWithAI(
   mediaUrl: string,
   mediaType: "image" | "document",
   apiKey: string,
+  base64Media?: string
 ): Promise<string | null> {
   const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB
 
   try {
-    const dlRes = await fetch(mediaUrl);
-    if (!dlRes.ok) return null;
+    let buffer: ArrayBuffer;
+    let contentType = "";
 
-    const contentLength = dlRes.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > MAX_MEDIA_BYTES) return null;
+    if (base64Media) {
+      const binaryString = atob(base64Media);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      buffer = bytes.buffer;
+      contentType = mediaType === "image" ? "image/jpeg" : "application/pdf";
+    } else {
+      if (!mediaUrl) return null;
+      const dlRes = await fetch(mediaUrl);
+      if (!dlRes.ok) return null;
 
-    const buffer = await dlRes.arrayBuffer();
-    if (buffer.byteLength > MAX_MEDIA_BYTES) return null;
+      const contentLength = dlRes.headers.get("content-length");
+      if (contentLength && parseInt(contentLength) > MAX_MEDIA_BYTES) return null;
 
-    const contentType = dlRes.headers.get("content-type") ?? "";
+      buffer = await dlRes.arrayBuffer();
+      contentType = dlRes.headers.get("content-type") ?? "";
+    }
+
     const isImage = mediaType === "image" || contentType.startsWith("image/");
 
     const systemPrompt =

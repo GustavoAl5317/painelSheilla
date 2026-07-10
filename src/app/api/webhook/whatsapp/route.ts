@@ -358,10 +358,10 @@ export async function POST(req: NextRequest) {
       } else {
         messageContent = "[O cliente enviou um áudio, mas a funcionalidade de transcrição não está configurada ou o áudio está indisponível. Peça educadamente ao cliente para digitar a mensagem por escrito.]";
       }
-    } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl) && openaiKey) {
-      const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl)!;
+    } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl || parsed.base64Media) && openaiKey) {
+      const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl) || "";
       const mediaType = messageType === "IMAGE" ? "image" : "document";
-      const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey);
+      const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey, parsed.base64Media);
       if (analysis) {
         messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
       }
