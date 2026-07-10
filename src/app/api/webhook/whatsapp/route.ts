@@ -401,7 +401,7 @@ export async function POST(req: NextRequest) {
     data: {
       conversationId: conversation.id,
       content: messageContent,
-      type: messageType as "TEXT" | "IMAGE" | "AUDIO",
+      type: messageType as "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT",
       direction: parsed.fromMe ? "OUTBOUND" : "INBOUND",
       status: "READ",
       externalId: externalMessageId,
