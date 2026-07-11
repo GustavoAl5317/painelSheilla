@@ -9,10 +9,6 @@ import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
 import { emit } from "@/lib/sse-emitter";
 import { resolveCredential } from "@/lib/credentials";
 
-// Tempo de inatividade do operador (sem mensagens/ações) após o qual a IA
-// volta a responder automaticamente, mesmo que tenha sido pausada/transferida.
-const AI_REACTIVATION_IDLE_MS = 2 * 60 * 60_000; // 2 horas
-
 // Tempo de espera por mensagens adicionais do cliente antes de acionar a IA.
 // Evita respostas separadas quando o cliente manda várias mensagens seguidas
 // (ex: "Ola" e depois "tudo bem?") — tudo é agrupado em uma única chamada à IA.
@@ -296,8 +292,8 @@ export async function POST(req: NextRequest) {
     // Detecta echo: Z-API devolve como fromMe=true qualquer mensagem enviada pelo número
     // conectado (IA ou operador). Se a mensagem já está salva como OUTBOUND nos últimos
     // 3 minutos, é echo — ignora sem tocar no aiEnabled.
-    // Comandos ".." e "." são verificados ANTES para nunca serem tratados como echo.
-    const isCommand = cmd === ".." || cmd === ".";
+    // Comandos de pausa/retomada são verificados ANTES para nunca serem tratados como echo.
+    const isCommand = cmd === ".." || cmd === "." || cmd === "#";
     if (!isCommand) {
       const echoWindow = new Date(Date.now() - 3 * 60_000);
       const recentOutbound = await prisma.message.findMany({
@@ -317,8 +313,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // "." → reativa IA, não salva nem envia ao cliente
-    if (cmd === ".") {
+    // "." ou "#" → reativa IA, não salva nem envia ao cliente
+    if (cmd === "." || cmd === "#") {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: { aiEnabled: true, operatorLastMessageAt: new Date() },
@@ -449,22 +445,10 @@ export async function POST(req: NextRequest) {
   });
 
   if (!freshConv?.aiEnabled) {
-    // Reativa a IA automaticamente se o operador ficou muito tempo sem interagir
-    // (IA pausada/transferida para humano e ninguém respondeu nesse intervalo).
-    const lastOperatorAction = freshConv?.operatorLastMessageAt;
-    const inactiveForTooLong =
-      !lastOperatorAction || lastOperatorAction.getTime() < Date.now() - AI_REACTIVATION_IDLE_MS;
-
-    if (!inactiveForTooLong) {
-      console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);
-      return NextResponse.json({ ok: true, ai: "disabled" });
-    }
-
-    console.log(`[Webhook] IA reativada para ${phoneNumber}: operador inativo há mais de ${AI_REACTIVATION_IDLE_MS / 60_000} min.`);
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { aiEnabled: true },
-    });
+    // A IA só volta a responder quando a doutora mandar "." ou "#" manualmente —
+    // não existe mais reativação automática por tempo de inatividade.
+    console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (aguardando reativação manual).`);
+    return NextResponse.json({ ok: true, ai: "disabled" });
   }
 
   // ── Agrupa mensagens em sequência rápida (debounce) ───────────────────────
