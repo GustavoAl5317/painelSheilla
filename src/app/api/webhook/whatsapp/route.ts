@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/ai/lead-qualifier";
 import { transcribeAudio, analyzeMediaWithAI } from "@/lib/ai/ai-service";
-import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
+import { sendWhatsAppMessage, fetchEvolutionMediaBase64 } from "@/lib/whatsapp-sender";
 import { isPhoneBlocked } from "@/lib/blocked-phones";
 import { parseWhatsAppWebhookBody } from "./parse-payload";
 import { findClientIdByOrgPhone } from "@/lib/phone-link-client";
@@ -348,8 +348,15 @@ export async function POST(req: NextRequest) {
   // ── Transcreve áudio / analisa mídia (somente mensagens do cliente) ─────────
   if (!parsed.fromMe) {
     if (messageType === "AUDIO") {
-      if ((audioUrl || parsed.base64Media) && openaiKey) {
-        const transcription = await transcribeAudio(audioUrl, openaiKey, parsed.base64Media);
+      let base64Media = parsed.base64Media;
+      // A URL de áudio da Evolution API é o arquivo criptografado do CDN do WhatsApp
+      // (".enc") — não dá pra transcrever direto. Busca a versão já descriptografada
+      // via API do próprio Evolution quando o webhook não trouxe base64.
+      if (!base64Media && parsed.messageKey && openaiKey) {
+        base64Media = (await fetchEvolutionMediaBase64(org.id, parsed.messageKey)) ?? undefined;
+      }
+      if ((audioUrl || base64Media) && openaiKey) {
+        const transcription = await transcribeAudio(base64Media ? undefined : audioUrl, openaiKey, base64Media);
         if (transcription) {
           messageContent = transcription;
         } else {
@@ -361,7 +368,12 @@ export async function POST(req: NextRequest) {
     } else if ((messageType === "IMAGE" || messageType === "DOCUMENT") && (imageUrl || documentUrl || parsed.base64Media) && openaiKey) {
       const mediaUrl = (messageType === "IMAGE" ? imageUrl : documentUrl) || "";
       const mediaType = messageType === "IMAGE" ? "image" : "document";
-      const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey, parsed.base64Media);
+      let mediaBase64 = parsed.base64Media;
+      // Mesmo problema do áudio: a URL crua da Evolution é o arquivo criptografado.
+      if (!mediaBase64 && parsed.messageKey) {
+        mediaBase64 = (await fetchEvolutionMediaBase64(org.id, parsed.messageKey)) ?? undefined;
+      }
+      const analysis = await analyzeMediaWithAI(mediaUrl, mediaType, openaiKey, mediaBase64);
       if (analysis) {
         messageContent = `[Arquivo recebido: ${documentName || "mídia"}]\nConteúdo analisado pela IA: ${analysis}`;
       }

@@ -15,6 +15,10 @@ type ParsedInbound = {
   documentUrl?: string;
   documentName?: string;
   base64Media?: string;
+  /** Chave original da mensagem (Evolution API) — necessária para buscar mídia
+   * criptografada via endpoint getBase64FromMediaMessage quando o webhook não
+   * traz o base64 já decodificado. */
+  messageKey?: { id: string; remoteJid?: string; fromMe?: boolean };
 };
 
 function str(v: unknown): string | null {
@@ -37,7 +41,7 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   // fromMe pode aparecer em vários formatos:
   //   Evolution: body.key.fromMe ou body.data.key.fromMe
   //   Outros:    body.direction = "out" / "OUTBOUND"
-  const key = (body.key ?? (body as any).data?.key) as { fromMe?: unknown } | undefined;
+  const key = (body.key ?? (body as any).data?.key) as { id?: unknown; remoteJid?: unknown; fromMe?: unknown } | undefined;
   const fromMe =
     body.fromMe === true || body.fromMe === "true" ||
     body.isFromMe === true || body.isFromMe === "true" ||
@@ -218,6 +222,11 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
   const isDocument = !isAudio && !isImage && !!(documentUrl || evDoc || body.type === "document" || evType === "documentMessage");
   const externalMessageId = str(body.messageId) ?? (typeof body.id === "string" || typeof body.id === "number" ? String(body.id) : null);
 
+  const keyId = str(key?.id);
+  const messageKey = keyId
+    ? { id: keyId, remoteJid: str(key?.remoteJid) ?? undefined, fromMe: key?.fromMe === true || key?.fromMe === "true" }
+    : undefined;
+
   return {
     phone,
     chatLid,
@@ -230,5 +239,6 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     documentUrl,
     documentName,
     base64Media,
+    messageKey,
   };
 }

@@ -40,6 +40,57 @@ async function sendViaEvolution(
   }
 }
 
+// ─── Mídia criptografada (áudio/imagem/documento) ──────────────────────────────
+// O webhook da Evolution API traz apenas a URL criptografada do CDN do WhatsApp
+// (termina em ".enc") — não dá para baixar e usar direto. É preciso pedir pro
+// próprio Evolution descriptografar usando a mediaKey que ele já tem em cache.
+
+export async function fetchEvolutionMediaBase64(
+  organizationId: string,
+  messageKey: { id: string; remoteJid?: string; fromMe?: boolean }
+): Promise<string | null> {
+  const [evoUrl, evoKey, evoInstance] = await Promise.all([
+    resolveCredential(organizationId, "EVOLUTION_API_URL"),
+    resolveCredential(organizationId, "EVOLUTION_API_KEY"),
+    resolveCredential(organizationId, "EVOLUTION_INSTANCE"),
+  ]);
+  if (!evoUrl || !evoKey || !evoInstance) return null;
+
+  try {
+    const res = await fetch(`${evoUrl.replace(/\/$/, "")}/chat/getBase64FromMediaMessage/${evoInstance}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: evoKey },
+      body: JSON.stringify({
+        message: {
+          key: {
+            id: messageKey.id,
+            remoteJid: messageKey.remoteJid,
+            fromMe: messageKey.fromMe ?? false,
+          },
+        },
+        convertToMp4: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`[fetchEvolutionMediaBase64] falhou: ${res.status}`, errText.slice(0, 300));
+      return null;
+    }
+
+    const data = await res.json();
+    const base64 = data?.base64 ?? data?.data?.base64 ?? data?.media?.base64 ?? null;
+    if (typeof base64 !== "string" || !base64) {
+      console.error(`[fetchEvolutionMediaBase64] resposta sem campo base64 reconhecível:`, JSON.stringify(data).slice(0, 300));
+      return null;
+    }
+    return base64;
+  } catch (err: any) {
+    console.error(`[fetchEvolutionMediaBase64] exceção:`, err.message);
+    return null;
+  }
+}
+
 // ─── Roteador principal ───────────────────────────────────────────────────────
 
 export async function sendWhatsAppMessage(
