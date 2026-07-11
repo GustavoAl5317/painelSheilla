@@ -69,6 +69,7 @@ export function ChatShell() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   const togglingBlockRef = useRef(false);
+  const togglingAiRef = useRef(false);
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -104,6 +105,7 @@ export function ChatShell() {
   // Mantém refs atualizadas para uso dentro dos closures de polling
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { togglingBlockRef.current = togglingBlock; }, [togglingBlock]);
+  useEffect(() => { togglingAiRef.current = togglingAi; }, [togglingAi]);
 
   // Polling automático: atualiza lista de conversas a cada 5s e mensagens da conversa aberta a cada 3s
   useEffect(() => {
@@ -122,8 +124,9 @@ export function ChatShell() {
               ...c,
               // Mantém as mensagens do estado local — o pollMessages cuida disso separadamente
               messages: existing.messages,
-              // Preserva isBlocked local enquanto toggle está em progresso para evitar flickering
+              // Preserva isBlocked/aiEnabled local enquanto o toggle está em progresso para evitar flickering
               isBlocked: togglingBlockRef.current && c.id === selectedIdRef.current ? existing.isBlocked : c.isBlocked,
+              aiEnabled: togglingAiRef.current && c.id === selectedIdRef.current ? existing.aiEnabled : c.aiEnabled,
             };
           });
         });
