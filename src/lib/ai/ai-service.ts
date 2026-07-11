@@ -129,12 +129,14 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 
 REGRA PARA ÁREAS FORA DO ESCOPO:
 - Se o cliente perguntar sobre áreas que NÃO sejam Trabalhista, Previdenciário ou Acidente de Trabalho (ex.: direito de família, criminal, civil, tributário, imobiliário, empresarial, etc.), responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista, Previdenciária e de Acidente de Trabalho. Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- ATENÇÃO — NUNCA aplique essa resposta para assuntos de Previdenciário (INSS, aposentadoria, auxílio-doença, BPC/LOAS, perícia, CRAS, pensão por morte, auxílio-acidente, revisão de benefício) nem de Trabalhista/Acidente de Trabalho (rescisão, horas extras, FGTS, verbas rescisórias, assédio, vínculo empregatício). Esses assuntos SEMPRE estão dentro do escopo, mesmo que a mensagem chegue isolada, sem saudação prévia ou sem o restante da triagem concluída — nesse caso, continue a triagem normalmente em vez de usar a resposta de fora de escopo.
 
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a frase exata: "⚖️ Nosso escritório não atua em processos em que o reclamante já possua advogado constituído com ações em andamento.\n\n🤝 Agradecemos imensamente a confiança em nosso trabalho.\n\n📬 Permanecemos à disposição para futuras oportunidades.\n\n\nDra Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
 
 REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "4 - Outros assuntos", digitar "4", ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
+- Se o cliente escolher a opção "4 - Outros assuntos", digitar "4", ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- Esta regra NÃO se aplica a assuntos de Previdenciário (INSS, aposentadoria, auxílio-doença, BPC/LOAS, perícia, CRAS, pensão por morte, auxílio-acidente, revisão de benefício) nem de Trabalhista/Acidente de Trabalho (rescisão, horas extras, FGTS, verbas rescisórias, assédio, vínculo empregatício) — esses assuntos seguem a triagem normal, mesmo sem o menu ter sido mostrado antes.`;
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
