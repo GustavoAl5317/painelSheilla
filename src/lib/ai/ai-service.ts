@@ -128,13 +128,15 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
 
 REGRA PARA ÁREAS FORA DO ESCOPO:
+- ATENÇÃO: benefícios como aposentadoria, auxílio-doença, auxílio-acidente, BPC/LOAS, pensão por morte, revisão de benefício, acidente de trabalho, rescisão, horas extras, assédio, vínculo empregatício e FGTS SÃO do escopo (Previdenciário/Trabalhista) — NUNCA classifique esses termos como fora de área, mesmo em mensagens curtas, isoladas ou sem contexto prévio na conversa.
 - Se o cliente perguntar sobre áreas que NÃO sejam Trabalhista, Previdenciário ou Acidente de Trabalho (ex.: direito de família, criminal, civil, tributário, imobiliário, empresarial, etc.), responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista, Previdenciária e de Acidente de Trabalho. Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
 
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a frase exata: "⚖️ Nosso escritório não atua em processos em que o reclamante já possua advogado constituído com ações em andamento.\n\n🤝 Agradecemos imensamente a confiança em nosso trabalho.\n\n📬 Permanecemos à disposição para futuras oportunidades.\n\n\nDra Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
 
 REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "4 - Outros assuntos", digitar "4", ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
+- Se o cliente escolher a opção "4 - Outros assuntos" ou digitar "4" SEM nomear uma área específica, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- Se, ao escolher "outros" ou em qualquer momento, o cliente nomear uma área específica fora do escopo (ex.: família, criminal, civil, tributário, imobiliário), use a "REGRA PARA ÁREAS FORA DO ESCOPO" acima em vez desta.`;
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
