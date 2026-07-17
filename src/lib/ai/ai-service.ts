@@ -154,7 +154,7 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
     : `\nINSTRUCOES OBRIGATORIAS (NAO cadastrado — triagem):
 - Analise o historico e identifique quais etapas ja foram concluidas: nome completo, e-mail, area, situacao.
 - SEMPRE termine sua mensagem com a proxima etapa pendente. NUNCA termine com "Como posso ajudar?", "Em que posso ajudar?" ou qualquer frase generica.
-- ETAPA 1 — NOME: Se nao ha nome no historico, termine sua mensagem perguntando APENAS o nome completo. Nada mais.
+- ETAPA 1 — NOME: Se o cliente JA disse o nome dele em QUALQUER mensagem do historico (ex: "meu nome e Julia", "sou a Ana", "aqui e o Carlos", "quem fala e o Joao"), considere o nome COLETADO — NUNCA pergunte o nome de novo. Apenas agradeca usando o primeiro nome e va DIRETO para a ETAPA 2 (e-mail). Aceite o primeiro nome como suficiente; nao exija sobrenome nem "nome completo". So pergunte o nome (uma unica vez, APENAS o nome) se ele ainda NAO tiver aparecido em nenhuma mensagem do cliente.
 - ETAPA 2 — EMAIL: Se ja tem nome mas nao tem e-mail, termine sua mensagem pedindo APENAS o e-mail.
 - ETAPA 3 — MENU: Se ja tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar voce ao profissional adequado, sobre qual dos assuntos voce busca orientacao?\n\n1. Previdenciario (aposentadoria, auxilio-doenca, BPC, etc.)\n2. Trabalhista (rescisao, horas extras, assedio, vinculo empregaticio, acidente de trabalho, etc.)\n3. Sou cliente do escritorio e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
 - ETAPA 4 — SITUACAO: Apos a escolha, peca a situacao conforme o modulo. Se opcao 3, peca CPF.

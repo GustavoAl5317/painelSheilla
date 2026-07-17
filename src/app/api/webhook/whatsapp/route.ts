@@ -12,7 +12,7 @@ import { resolveCredential } from "@/lib/credentials";
 // Tempo de espera por mensagens adicionais do cliente antes de acionar a IA.
 // Evita respostas separadas quando o cliente manda várias mensagens seguidas
 // (ex: "Ola" e depois "tudo bem?") — tudo é agrupado em uma única chamada à IA.
-const AI_DEBOUNCE_MS = 8_000;
+const AI_DEBOUNCE_MS = 15_000;
 
 type PendingBatch = {
   timer: ReturnType<typeof setTimeout>;
