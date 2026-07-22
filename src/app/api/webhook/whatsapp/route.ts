@@ -376,6 +376,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Salvaguarda: se o placeholder de áudio não foi substituído (ex: tipo de
+  // mensagem não detectado como AUDIO), troca por uma instrução clara para a IA
+  // — assim ela nunca ecoa "[Áudio recebido]" de volta ao cliente.
+  if (!parsed.fromMe && messageContent?.trim() === "[Áudio recebido]") {
+    messageContent = "[O cliente enviou um áudio, mas não foi possível transcrever. Peça educadamente para ele digitar a mensagem por escrito.]";
+  }
+
   // ── Salva mensagem (idempotência por externalId ou conteúdo recente) ───────
   if (externalMessageId) {
     const existing = await prisma.message.findFirst({
