@@ -56,6 +56,7 @@ export interface TIMovement {
 
 export interface TIPublication {
   id: string | number;
+  uuid?: string;
   texto: string;
   numero_processo: string;
   numero_processo_com_mascara?: string;
@@ -64,6 +65,7 @@ export interface TIPublication {
   destinatarios?: { nome: string }[];
   disponibilizacao_date?: string;
   inicio_do_prazo_date?: string;
+  publication_date?: string;
   siglaTribunal?: string;
   nomeOrgao?: string;
   nomeClasse?: string;

@@ -27,11 +27,16 @@ interface Props {
 }
 
 const sourceStyle: Record<string, { label: string; color: string }> = {
-  COMMENT: { label: "Advogado", color: "text-blue-600 bg-blue-50" },
-  DJEN:    { label: "DJEN",     color: "text-violet-600 bg-violet-50" },
-  PJE:     { label: "PJe",      color: "text-emerald-600 bg-emerald-50" },
-  SYSTEM:  { label: "Sistema",  color: "text-gray-500 bg-gray-100" },
+  COMMENT:                { label: "Advogado",   color: "text-blue-600 bg-blue-50" },
+  DJEN:                   { label: "DJEN",       color: "text-violet-600 bg-violet-50" },
+  PJE:                    { label: "PJe",        color: "text-emerald-600 bg-emerald-50" },
+  SYSTEM:                 { label: "Sistema",    color: "text-gray-500 bg-gray-100" },
+  TRAMITACAO_INTELIGENTE: { label: "Tramitação", color: "text-orange-600 bg-orange-50" },
 };
+
+function stripMarkdown(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1");
+}
 
 function fmtDt(iso: string) {
   return new Date(iso).toLocaleString("pt-BR", {
@@ -62,6 +67,11 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
 
   /* ── toggle envio ── */
   const [toggling, setToggling] = useState(false);
+
+  /* ── expandir entradas longas ── */
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const load = useCallback(async () => {
     setLoadingEntries(true);
@@ -237,6 +247,11 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {entries.map(e => {
                   const src = sourceStyle[e.source] ?? { label: e.source, color: "text-gray-500 bg-gray-100" };
+                  const LIMIT = 300;
+                  const clean = stripMarkdown(e.content);
+                  const isLong = clean.length > LIMIT;
+                  const expanded = expandedIds.has(e.id);
+                  const displayed = isLong && !expanded ? clean.slice(0, LIMIT) + "…" : clean;
                   return (
                     <div key={e.id} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5">
                       <div className="flex items-center justify-between gap-2 mb-2">
@@ -246,8 +261,16 @@ export function ProcessCrmCard({ processId, processNumber, clientId, lastDjenSea
                         <span className="text-[10px] text-gray-400">{fmtDt(e.createdAt)}</span>
                       </div>
                       <p className="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">
-                        {e.content}
+                        {displayed}
                       </p>
+                      {isLong && (
+                        <button
+                          onClick={() => toggleExpand(e.id)}
+                          className="mt-1.5 text-[11px] text-blue-500 hover:text-blue-700 font-medium"
+                        >
+                          {expanded ? "Ver menos ▲" : "Ver mais ▼"}
+                        </button>
+                      )}
                       {e.source === "COMMENT" && (
                         <div className="flex items-center gap-1 mt-2">
                           <MessageSquare className="h-3 w-3 text-gray-300" />
