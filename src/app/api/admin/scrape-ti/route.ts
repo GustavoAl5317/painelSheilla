@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tiWebLogin } from "@/lib/ti-web-auth";
 import {
@@ -13,6 +12,7 @@ import {
 import { ensureClientCaseCard } from "@/lib/case-card";
 
 export const maxDuration = 300;
+export const runtime = "nodejs";
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
@@ -262,45 +262,30 @@ async function upsertProcesses(
 export async function POST(req: NextRequest) {
   let orgId: string;
 
-  // ── Autenticação por sessão (padrão) ───────────────────────────────────────
-  const session = await auth();
+  // Resolve organização automaticamente — sem autenticação
+  let bodyPreview: { organizationSlug?: string } = {};
+  try {
+    bodyPreview = await req.clone().json();
+  } catch { /* ignora, body será relido abaixo */ }
 
-  if (session) {
-    orgId = (session.user as { organizationId: string }).organizationId;
-  } else {
-    // ── Autenticação por API Key ─────────────────────────────────────────────
-    const apiKey = req.headers.get("x-api-key");
-    const expectedKey = process.env.ADMIN_SCRAPE_API_KEY;
-
-    if (!expectedKey || !apiKey || apiKey !== expectedKey) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  if (bodyPreview.organizationSlug) {
+    const org = await prisma.organization.findUnique({
+      where: { slug: bodyPreview.organizationSlug },
+      select: { id: true },
+    });
+    if (!org) {
+      return NextResponse.json({ error: "Organização não encontrada." }, { status: 404 });
     }
-
-    // Resolve a organização pelo slug fornecido no body ou pela única existente
-    let bodyPreview: { organizationSlug?: string } = {};
-    try {
-      bodyPreview = await req.clone().json();
-    } catch { /* ignora, body será relido abaixo */ }
-
-    if (bodyPreview.organizationSlug) {
-      const org = await prisma.organization.findUnique({
-        where: { slug: bodyPreview.organizationSlug },
-        select: { id: true },
-      });
-      if (!org) {
-        return NextResponse.json({ error: "Organização não encontrada." }, { status: 404 });
-      }
-      orgId = org.id;
+    orgId = org.id;
+  } else {
+    const orgs = await prisma.organization.findMany({ select: { id: true } });
+    if (orgs.length === 1) {
+      orgId = orgs[0].id;
     } else {
-      const orgs = await prisma.organization.findMany({ select: { id: true } });
-      if (orgs.length === 1) {
-        orgId = orgs[0].id;
-      } else {
-        return NextResponse.json(
-          { error: "Informe organizationSlug no body (há mais de uma organização)." },
-          { status: 400 }
-        );
-      }
+      return NextResponse.json(
+        { error: "Informe organizationSlug no body (há mais de uma organização)." },
+        { status: 400 }
+      );
     }
   }
 
