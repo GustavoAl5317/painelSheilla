@@ -26,6 +26,19 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
+// Rede de segurança: mesmo quando o prompt manda incluir [TRANSFERIR_PARA_HUMANO],
+// o modelo às vezes esquece a tag na resposta. Se o texto já anuncia que vai
+// encaminhar/repassar o caso para a Dra. Sheila ou a equipe, trata como transferência
+// de qualquer forma — evita a IA falar duas vezes com o cliente (uma avisando o
+// repasse, outra confirmando de novo) enquanto a conversa já devia ser do humano.
+const HANDOFF_ACTION = /\bencaminh|\brepass|\bacionar\b|\bnotificad|\bnotificamos\b|passar (a )?sua mensagem/;
+const HANDOFF_TARGET = /\bdras?\b|\bdoutora\b|\bsheila\b|\bequipe\b|\badvogad|\bjur[ií]dic/;
+
+function announcesHandoffToHuman(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return HANDOFF_ACTION.test(normalized) && HANDOFF_TARGET.test(normalized);
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -49,7 +62,8 @@ export async function runAIChat(
 
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
-    responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
+    responseContent.includes("[TRANSFERIR_PARA_HUMANO]") ||
+    announcesHandoffToHuman(responseContent);
 
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
 
