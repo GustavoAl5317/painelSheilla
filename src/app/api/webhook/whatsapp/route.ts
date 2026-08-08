@@ -434,11 +434,13 @@ export async function POST(req: NextRequest) {
   });
 
   if (!freshConv?.aiEnabled) {
-    // Reativa a IA automaticamente se o operador ficou muito tempo sem interagir
-    // (IA pausada/transferida para humano e ninguém respondeu nesse intervalo).
+    // Reativa a IA automaticamente só quando a pausa veio de uma ação do operador
+    // e ele ficou muito tempo sem interagir. Se não há registro de ação do operador,
+    // a IA foi desligada por transferência ou pelo painel — nesses casos a conversa
+    // é do humano e a IA só volta com "." ou pelo botão do painel.
     const lastOperatorAction = freshConv?.operatorLastMessageAt;
     const inactiveForTooLong =
-      !lastOperatorAction || lastOperatorAction.getTime() < Date.now() - AI_REACTIVATION_IDLE_MS;
+      !!lastOperatorAction && lastOperatorAction.getTime() < Date.now() - AI_REACTIVATION_IDLE_MS;
 
     if (!inactiveForTooLong) {
       console.log(`[Webhook] AI ignorada para ${phoneNumber}: conversa com IA desativada (check final).`);

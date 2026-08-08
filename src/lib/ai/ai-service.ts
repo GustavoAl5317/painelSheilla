@@ -26,6 +26,18 @@ export interface AIServiceConfig {
   transferKeywords: string[];
 }
 
+// Frases em que a IA avisa que vai repassar o atendimento para a Dra. Sheila ou
+// para a equipe. Quando isso acontece o atendimento passa a ser humano, mesmo que
+// o modelo tenha esquecido de incluir a tag [TRANSFERIR_PARA_HUMANO] na resposta.
+const HANDOFF_ACTION = /\bencaminh|\brepass|\bacionar\b|\bnotificad|\bnotificamos\b|passar (a )?sua mensagem/;
+const HANDOFF_TARGET = /\bdras?\b|\bdoutora\b|\bsheila\b|\bequipe\b|\badvogad|\bjur[ií]dic/;
+
+/** Detecta se a resposta da IA anuncia repasse do atendimento para um humano. */
+export function announcesHandoffToHuman(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return HANDOFF_ACTION.test(normalized) && HANDOFF_TARGET.test(normalized);
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -49,7 +61,8 @@ export async function runAIChat(
 
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
-    responseContent.includes("[TRANSFERIR_PARA_HUMANO]");
+    responseContent.includes("[TRANSFERIR_PARA_HUMANO]") ||
+    announcesHandoffToHuman(responseContent);
 
   const triageComplete = responseContent.includes("[TRIAGEM COMPLETA]");
 
@@ -128,7 +141,15 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
 
 REGRA PARA ÁREAS FORA DO ESCOPO:
-- Se o cliente perguntar sobre áreas que NÃO sejam Trabalhista, Previdenciário ou Acidente de Trabalho (ex.: direito de família, criminal, civil, tributário, imobiliário, empresarial, etc.), responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista, Previdenciária e de Acidente de Trabalho. Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- Esta regra só vale quando o cliente descreve CLARAMENTE uma demanda de OUTRA ÁREA DO DIREITO (ex.: divórcio, guarda, inventário, criminal, despejo, cobrança civil, tributário, imobiliário, empresarial, consumidor).
+- NUNCA use esta resposta para perguntas sobre COMO FUNCIONA O ATENDIMENTO — justiça gratuita, gratuidade, custas, honorários, valores, formas de pagamento, atendimento online ou presencial, endereço, horário, cidade atendida, documentos necessários, "você pode me ajudar?". Isso NÃO é outra área do direito: siga a triagem normal.
+- NUNCA use esta resposta em saudações, mensagens genéricas ou quando ainda não sabe qual é o problema do cliente. Na dúvida, siga a triagem normal e pergunte a próxima etapa pendente.
+- Quando (e somente quando) a demanda for claramente de outra área, responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista, Previdenciária e de Acidente de Trabalho. Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+
+REGRA PARA PERGUNTAS SOBRE CUSTOS E JUSTIÇA GRATUITA:
+- Perguntas como "vocês trabalham com justiça gratuita?", "é gratuito?", "cobra alguma coisa?", "quanto custa?", "como funcionam os honorários?" são sobre o atendimento, NÃO são outra área do direito e NÃO encerram a conversa.
+- Responda em UMA frase curta, sem citar valores: "A gratuidade de justiça e as condições de honorários são avaliadas pela Dra. Sheila e pela equipe jurídica junto com a análise do seu caso." e, na MESMA mensagem, continue com a próxima etapa pendente da triagem (nome → e-mail → menu de áreas).
+- NUNCA prometa que o atendimento é gratuito nem que a justiça gratuita será concedida.
 
 REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
 - Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a frase exata: "⚖️ Nosso escritório não atua em processos em que o reclamante já possua advogado constituído com ações em andamento.\n\n🤝 Agradecemos imensamente a confiança em nosso trabalho.\n\n📬 Permanecemos à disposição para futuras oportunidades.\n\n\nDra Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.

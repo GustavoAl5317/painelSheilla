@@ -157,6 +157,12 @@ export async function processIncomingMessage(
     console.log(`[AI ignore] Conversa ${conversationId} está bloqueada.`);
     return null;
   }
+  // Revalida aqui porque a IA pode ter sido desativada (transferência, operador ou
+  // painel) enquanto o lote de mensagens aguardava o debounce do webhook.
+  if (!conversation.aiEnabled) {
+    console.log(`[AI ignore] Conversa ${conversationId} está com a IA desativada.`);
+    return null;
+  }
 
   const aiCfgForBlock = await prisma.aIConfig.findUnique({ where: { organizationId }, select: { blockedNumbers: true } });
   const blockedList = (aiCfgForBlock as any)?.blockedNumbers;
@@ -397,14 +403,15 @@ export async function processIncomingMessage(
   }
 
   // ── Transferência para humano ─────────────────────────────────────────────
-  // Só desativa a IA se o operador não a reativou manualmente com ".".
-  // Se operatorIntervened, o operador já está ciente — notifica mas mantém a IA conforme estava.
+  // A partir do momento em que a IA avisa que vai encaminhar o caso (tag
+  // [TRANSFERIR_PARA_HUMANO] ou frase de repasse), o atendimento é do humano:
+  // a IA fica desativada nessa conversa até alguém reativar com "." ou pelo painel.
   if (result.shouldTransferToHuman) {
     await prisma.conversation.update({
       where: { id: conversationId },
       data: {
         status: "TRANSFERRED_TO_HUMAN",
-        ...(!operatorIntervened && { aiEnabled: false }),
+        aiEnabled: false,
       },
     });
 
