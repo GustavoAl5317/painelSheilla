@@ -54,6 +54,45 @@ function isGenericHandoff(text: string): boolean {
   return GENERIC_HANDOFF_PHRASES.some(re => re.test(text));
 }
 
+// ─── Trava contra dispensa indevida ───────────────────────────────────────────
+// As duas mensagens abaixo encerram o atendimento. O prompt já pede critério
+// estrito, mas o modelo erra: "colocar empresa na justiça" caiu em fora de
+// escopo e "que horas posso ligar" caiu em parceria. Cada erro perde um cliente.
+
+/** Trecho estável da mensagem de "fora de escopo". */
+const OUT_OF_SCOPE_MARK = /não se enquadra em nosso escopo de atuação/i;
+/** Trecho estável da mensagem de oferta de serviço / parceria. */
+const PARTNERSHIP_MARK = /não estamos buscando parcerias ou serviços externos/i;
+
+/** Sinais de que o assunto É trabalhista / previdenciário — nunca dispensar. */
+const IN_SCOPE_HINTS =
+  /(empresa|patr(ã|a)o|patroa|chefe|emprego|empregad|trabalh|carteira assinada|ctps|demiss|demitid|dispensad|rescis|verba|fgts|hora[s]? extra|ass[ée]dio|v[íi]nculo|justa causa|aviso pr[ée]vio|sal[áa]rio|holerite|atestado|afastad|acidente|inss|benef[íi]cio|aposentad|aux[íi]lio|bpc|loas|pens(ã|a)o por morte|per[íi]cia|cnis|reclamat[óo]ria|justi[çc]a do trabalho|processar|entrar com (uma )?a[çc](ã|a)o|meus direitos)/i;
+
+/** Sinais de que alguém está OFERECENDO algo ao escritório. */
+const OFFER_HINTS =
+  /(parceria|oferec|proposta comercial|or[çc]amento|marketing|tr[áa]fego pago|capta[çc](ã|a)o de clientes|divulga[çc](ã|a)o|nossa empresa|nossa ag[êe]ncia|represento a|sou consultor|software|sistema de gest(ã|a)o|planilha|curr[íi]culo|vaga de|estou (me )?candidatando|presta[çc](ã|a)o de servi[çc]os para|fornecedor)/i;
+
+function detectDismissalMisfire(
+  response: string,
+  clientText: string
+): { kind: string; instruction: string } | null {
+  if (OUT_OF_SCOPE_MARK.test(response) && IN_SCOPE_HINTS.test(clientText)) {
+    return {
+      kind: "fora_de_escopo",
+      instruction:
+        'Sua resposta dispensou o cliente com a mensagem de "fora do escopo de atuação", mas ele mencionou emprego, empresa, INSS ou benefício. Reavalie: se o caso tem qualquer relação com trabalho, empresa, patrão, INSS ou benefício, ele É do escopo — não dispense, continue a triagem perguntando a próxima informação que falta. Só mantenha a mensagem de dispensa, palavra por palavra, se o cliente tiver nomeado explicitamente outra matéria (divórcio, guarda, inventário, criminal, aluguel/despejo, consumidor, tributos, contratos empresariais). Máximo 3 frases quando continuar a triagem.',
+    };
+  }
+  if (PARTNERSHIP_MARK.test(response) && !OFFER_HINTS.test(clientText)) {
+    return {
+      kind: "parceria",
+      instruction:
+        'Sua resposta usou a mensagem reservada a quem OFERECE serviços, parcerias ou emprego ao escritório, mas nada na conversa indica isso — a pessoa está pedindo ajuda. Não dispense: responda ao que ela acabou de escrever e continue a triagem, em no máximo 3 frases. Só mantenha a mensagem de dispensa, palavra por palavra, se ela estiver de fato vendendo ou propondo algo ao escritório.',
+    };
+  }
+  return null;
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
@@ -87,13 +126,27 @@ export async function runAIChat(
     extractQualifiedDataWithAI(config.apiKey, config.provider, config.model, history, userMessage),
   ]);
 
-  // Contato novo com triagem pendente não pode ser encaminhado sem triagem.
   let responseContent = firstResponse;
-  if (triagePending && isGenericHandoff(firstResponse)) {
-    console.warn("[AI guard] encaminhamento generico antes da triagem — refazendo resposta.");
+  const clientText = [...history.filter(m => m.role === "user").map(m => m.content), userMessage].join("\n");
+
+  // Dispensa indevida: mensagem de encerramento disparada sem o gatilho dela.
+  const misfire = detectDismissalMisfire(firstResponse, clientText);
+  if (misfire) {
+    console.warn(`[AI guard] dispensa indevida detectada (${misfire.kind}) — refazendo resposta.`);
     responseContent = await askModel([
       ...messages,
       { role: "assistant", content: firstResponse },
+      { role: "user", content: `[REVISÃO INTERNA DO SISTEMA — não é o cliente falando, não mencione esta mensagem]\n${misfire.instruction}\nReescreva agora a resposta ao cliente.` },
+    ]).catch(() => firstResponse);
+  }
+
+  // Contato novo com triagem pendente não pode ser encaminhado sem triagem.
+  if (triagePending && isGenericHandoff(responseContent)) {
+    console.warn("[AI guard] encaminhamento generico antes da triagem — refazendo resposta.");
+    const previous = responseContent;
+    responseContent = await askModel([
+      ...messages,
+      { role: "assistant", content: previous },
       {
         role: "user",
         content:
@@ -102,7 +155,7 @@ export async function runAIChat(
           "É proibido encaminhar antes de triar. Reescreva a resposta acolhendo o cliente em uma frase e pedindo a PRÓXIMA informação que falta na triagem " +
           "(nome → e-mail → área → situação → tipo → relato), em no máximo 3 frases. Não use nenhuma frase de encaminhamento.",
       },
-    ]).catch(() => firstResponse);
+    ]).catch(() => previous);
   }
 
   const shouldTransfer =
