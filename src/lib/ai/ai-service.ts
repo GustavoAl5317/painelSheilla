@@ -39,26 +39,71 @@ function announcesHandoffToHuman(text: string): boolean {
   return HANDOFF_ACTION.test(normalized) && HANDOFF_TARGET.test(normalized);
 }
 
+// ─── Trava: contato novo tem que passar pela triagem ──────────────────────────
+// As duas frases de encaminhamento genérico existem para casos que a IA não
+// consegue classificar. Na prática elas viraram atalho: a primeira mensagem de
+// um lead novo é quase sempre "assunto não claro", então a IA encaminhava sem
+// fazer triagem nenhuma — e, como o encaminhamento desativa a IA na conversa,
+// aquele contato nunca mais era triado.
+const GENERIC_HANDOFF_PHRASES = [
+  /ser[áa] encaminhada à dra\.? sheila/i,
+  /encaminhar sua mensagem para a dra\.? sheila/i,
+];
+
+function isGenericHandoff(text: string): boolean {
+  return GENERIC_HANDOFF_PHRASES.some(re => re.test(text));
+}
+
 export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string }
+  options?: {
+    clientContext?: string;
+    hasMedia?: boolean;
+    operatorIntervened?: boolean;
+    contactName?: string;
+    triageState?: string;
+    triagePending?: boolean;
+  }
 ): Promise<AIResponse> {
-  const { clientContext, hasMedia = false, operatorIntervened = false, contactName } = options ?? {};
+  const { clientContext, hasMedia = false, operatorIntervened = false, contactName, triageState, triagePending = false } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, hasMedia, operatorIntervened, contactName) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, hasMedia, operatorIntervened, contactName, triageState) },
     ...history,
     { role: "user", content: userMessage },
   ];
 
-  // Roda resposta ao cliente e extração de dados em paralelo
-  const [responseContent, qualifiedData] = await Promise.all([
+  // Temperatura baixa: o fluxo de triagem é determinístico e 0.7 produzia
+  // respostas fora de contexto (dispensa indevida, troca de módulo).
+  const askModel = (msgs: AIMessage[]) =>
     config.provider === "openai"
-      ? callOpenAI(config.apiKey, config.model, messages)
-      : callAnthropic(config.apiKey, config.model, messages),
+      ? callOpenAI(config.apiKey, config.model, msgs, 0.2)
+      : callAnthropic(config.apiKey, config.model, msgs, 0.2);
+
+  // Roda resposta ao cliente e extração de dados em paralelo
+  const [firstResponse, qualifiedData] = await Promise.all([
+    askModel(messages),
     extractQualifiedDataWithAI(config.apiKey, config.provider, config.model, history, userMessage),
   ]);
+
+  // Contato novo com triagem pendente não pode ser encaminhado sem triagem.
+  let responseContent = firstResponse;
+  if (triagePending && isGenericHandoff(firstResponse)) {
+    console.warn("[AI guard] encaminhamento generico antes da triagem — refazendo resposta.");
+    responseContent = await askModel([
+      ...messages,
+      { role: "assistant", content: firstResponse },
+      {
+        role: "user",
+        content:
+          "[REVISÃO INTERNA DO SISTEMA — não é o cliente falando, não mencione esta mensagem]\n" +
+          "Você encaminhou o contato para a Dra. Sheila sem ter feito a triagem, e este contato ainda não tem a triagem concluída. " +
+          "É proibido encaminhar antes de triar. Reescreva a resposta acolhendo o cliente em uma frase e pedindo a PRÓXIMA informação que falta na triagem " +
+          "(nome → e-mail → área → situação → tipo → relato), em no máximo 3 frases. Não use nenhuma frase de encaminhamento.",
+      },
+    ]).catch(() => firstResponse);
+  }
 
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
@@ -80,7 +125,14 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
+function buildSystemPrompt(
+  base: string,
+  clientContext: string | undefined,
+  hasMedia = false,
+  operatorIntervened = false,
+  contactName?: string,
+  triageState?: string
+): string {
   const firstNameForGreeting = (() => {
     const raw = contactName?.trim();
     if (!raw) return "";
@@ -195,7 +247,13 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o humano já coletou alguma informação (nome, e-mail, área), considere essa informação como disponível e não repita a pergunta.`
     : "";
 
-  return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
+  // Âncora determinística do que já foi coletado — instrução em prompt sozinha
+  // não impedia a IA de repetir perguntas já respondidas.
+  const triageStateSection = triageState
+    ? `\n\n--- ESTADO DA TRIAGEM (extraído automaticamente desta conversa) ---\n${triageState}\n- Todo item marcado como "JÁ COLETADO" está respondido: é PROIBIDO perguntá-lo novamente.\n- Pergunte apenas o primeiro item marcado como "FALTA".\n- Enquanto houver item marcado como "FALTA", é PROIBIDO encaminhar o contato para a Dra. Sheila sem triar — continue a triagem.\n- Se nada estiver marcado como "FALTA", encerre a triagem.`
+    : "";
+
+  return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${triageStateSection}${mediaInstruction}${operatorNote}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────
@@ -224,7 +282,7 @@ REGRAS CRÍTICAS:
 - Se o nome não foi dito claramente, omita o campo "name" completamente.
 - Só preencha "email" se o cliente informou o próprio e-mail de forma explícita (ex: "meu e-mail é...", "pode me mandar para...@..."). NUNCA extraia e-mails que apareçam como exemplos, contexto ou de terceiros.
 - Só preencha "legalArea" se o tipo do problema jurídico ficou claro na conversa.
-- Só preencha "caseSummary" se há informações suficientes para um resumo real.
+- Preencha "caseSummary" sempre que o cliente já tiver descrito o que aconteceu com ele, mesmo que de forma desorganizada ou incompleta. Esse campo é usado para não pedir o relato duas vezes — se ele já contou algo do caso, resuma.
 
 Campos possíveis (omita os que não tiver certeza):
 {
@@ -249,9 +307,10 @@ Retorne APENAS o JSON, sem markdown.`;
   ];
 
   try {
+    // Extração é tarefa determinística — temperatura 0 evita JSON inventado
     const raw = provider === "openai"
-      ? await callOpenAI(apiKey, model, messages)
-      : await callAnthropic(apiKey, model, messages);
+      ? await callOpenAI(apiKey, model, messages, 0)
+      : await callAnthropic(apiKey, model, messages, 0);
 
     const parsed = JSON.parse(raw.replace(/```json\n?|```/g, "").trim());
 
@@ -532,18 +591,18 @@ export async function analyzeMediaWithAI(
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
-async function callOpenAI(apiKey: string, model: string, messages: AIMessage[]): Promise<string> {
+async function callOpenAI(apiKey: string, model: string, messages: AIMessage[], temperature = 0.7): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, max_tokens: 500, temperature: 0.7 }),
+    body: JSON.stringify({ model, messages, max_tokens: 500, temperature }),
   });
   if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
   const data = await res.json();
   return data.choices[0].message.content;
 }
 
-async function callAnthropic(apiKey: string, model: string, messages: AIMessage[]): Promise<string> {
+async function callAnthropic(apiKey: string, model: string, messages: AIMessage[], temperature?: number): Promise<string> {
   const systemMsg = messages.find(m => m.role === "system")?.content ?? "";
   const chatMessages = messages.filter(m => m.role !== "system");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -553,7 +612,13 @@ async function callAnthropic(apiKey: string, model: string, messages: AIMessage[
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model, max_tokens: 500, system: systemMsg, messages: chatMessages }),
+    body: JSON.stringify({
+      model,
+      max_tokens: 500,
+      system: systemMsg,
+      messages: chatMessages,
+      ...(temperature !== undefined && { temperature }),
+    }),
   });
   if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
   const data = await res.json();

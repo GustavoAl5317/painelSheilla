@@ -131,6 +131,50 @@ async function advanceLeadStage(
   }
 }
 
+// ─── Estado da triagem ────────────────────────────────────────────────────────
+
+/** Nome cru vindo do webhook (telefone ou LID) não conta como nome coletado. */
+function isPlaceholderName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  const compact = name.replace(/\s/g, "");
+  return /^\+?[\d().-]{8,}$/.test(compact) || compact.startsWith("lid:");
+}
+
+type TriageLead = {
+  name?: string | null;
+  email?: string | null;
+  legalArea?: string | null;
+  caseSummary?: string | null;
+};
+
+/**
+ * Resumo do que já foi coletado, montado a partir do Lead (preenchido pela
+ * extração dos turnos anteriores). Vai para o system prompt para que a IA não
+ * repita perguntas já respondidas nem encaminhe o contato antes de triar.
+ */
+function buildTriageState(lead: TriageLead | null | undefined): string | undefined {
+  if (!lead) return undefined;
+
+  const name = isPlaceholderName(lead.name) ? null : lead.name!.trim();
+  const line = (label: string, value: string | null | undefined, hint: string) =>
+    value?.trim()
+      ? `- ${label}: JÁ COLETADO → "${value.trim()}"`
+      : `- ${label}: FALTA (${hint})`;
+
+  return [
+    line("Nome", name, "pergunte o nome"),
+    line("E-mail", lead.email, "peça o e-mail para contato"),
+    line("Área jurídica", lead.legalArea, "identifique a área ou apresente o menu de 4 opções"),
+    line("Relato do caso", lead.caseSummary, "peça que conte brevemente o que aconteceu"),
+  ].join("\n");
+}
+
+/** Triagem pendente = ainda falta nome, área ou relato do caso. */
+function isTriagePending(lead: TriageLead | null | undefined): boolean {
+  if (!lead) return true;
+  return isPlaceholderName(lead.name) || !lead.legalArea?.trim() || !lead.caseSummary?.trim();
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function processIncomingMessage(
@@ -334,11 +378,18 @@ export async function processIncomingMessage(
     contactName = lead.name;
   }
 
+  // Cliente cadastrado segue o fluxo de menu/processo, que não tem etapas de coleta —
+  // a triagem (e a trava contra encaminhar sem triar) vale só para contato não cadastrado.
+  const triageState = clientContext ? undefined : buildTriageState(lead);
+  const triagePending = !clientContext && isTriagePending(lead);
+
   let result = await runAIChat(config, history, userMessage, {
     clientContext,
     hasMedia,
     operatorIntervened,
     contactName,
+    triageState,
+    triagePending,
   });
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────
@@ -348,7 +399,7 @@ export async function processIncomingMessage(
     const update: Record<string, unknown> = {};
 
     // Atualiza nome apenas se o lead ainda usa o telefone como nome (valor padrão do webhook)
-    if (name && currentLead && /^\+?\d+$/.test(currentLead.name)) {
+    if (name && currentLead && isPlaceholderName(currentLead.name)) {
       update.name = name;
     }
     if (email)       update.email = email;
