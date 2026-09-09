@@ -131,6 +131,48 @@ async function advanceLeadStage(
   }
 }
 
+// ─── Estado da triagem ────────────────────────────────────────────────────────
+
+/** Nome cru vindo do webhook (telefone) não conta como nome coletado. */
+function isPlaceholderName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  const compact = name.replace(/\s/g, "");
+  return /^\+?[\d().-]{8,}$/.test(compact) || compact.startsWith("lid:");
+}
+
+/**
+ * Resumo do que já foi coletado nesta conversa, montado a partir do Lead
+ * (preenchido pela extração dos turnos anteriores). Vai para o system prompt
+ * para que a IA nunca repita uma pergunta já respondida — a queixa principal
+ * das doutoras era a triagem "engessada", perguntando tudo de novo.
+ */
+function buildTriageState(lead: {
+  name?: string | null;
+  email?: string | null;
+  legalArea?: string | null;
+  caseSummary?: string | null;
+} | null | undefined): string | undefined {
+  if (!lead) return undefined;
+
+  const name = isPlaceholderName(lead.name) ? null : lead.name!.trim();
+  const line = (label: string, value: string | null | undefined, hint: string) =>
+    value?.trim()
+      ? `- ${label}: JÁ COLETADO → "${value.trim()}"`
+      : `- ${label}: FALTA (${hint})`;
+
+  const lines = [
+    line("Nome completo", name, "pergunte o nome completo"),
+    line("E-mail", lead.email, "peça o e-mail para contato"),
+    line("Área jurídica", lead.legalArea, "identifique a área ou apresente o menu de 4 opções"),
+    line("Relato do caso", lead.caseSummary, "peça que conte brevemente o que aconteceu"),
+  ];
+
+  // Sem nada coletado ainda não há o que ancorar — o prompt base já cobre o início.
+  if (lines.every(l => l.includes("FALTA"))) return undefined;
+
+  return lines.join("\n");
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function processIncomingMessage(
@@ -328,11 +370,16 @@ export async function processIncomingMessage(
     contactName = lead.name;
   }
 
+  // Só ancora o estado da triagem quando não há cadastro — cliente cadastrado
+  // segue o fluxo de menu/processo, que não tem etapas de coleta.
+  const triageState = clientContext ? undefined : buildTriageState(lead);
+
   let result = await runAIChat(config, history, userMessage, {
     clientContext,
     hasMedia,
     operatorIntervened,
     contactName,
+    triageState,
   });
 
   // ── Atualiza dados e score do lead ────────────────────────────────────────
@@ -341,8 +388,8 @@ export async function processIncomingMessage(
     const currentLead = conversation.lead;
     const update: Record<string, unknown> = {};
 
-    // Atualiza nome apenas se o lead ainda usa o telefone como nome (valor padrão do webhook)
-    if (name && currentLead && /^\+?\d+$/.test(currentLead.name)) {
+    // Atualiza nome apenas se o lead ainda usa o telefone/LID como nome (valor padrão do webhook)
+    if (name && currentLead && isPlaceholderName(currentLead.name)) {
       update.name = name;
     }
     if (email)       update.email = email;

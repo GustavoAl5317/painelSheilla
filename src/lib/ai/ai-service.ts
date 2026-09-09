@@ -30,22 +30,41 @@ export async function runAIChat(
   config: AIServiceConfig,
   history: AIMessage[],
   userMessage: string,
-  options?: { clientContext?: string; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string }
+  options?: { clientContext?: string; hasMedia?: boolean; operatorIntervened?: boolean; contactName?: string; triageState?: string }
 ): Promise<AIResponse> {
-  const { clientContext, hasMedia = false, operatorIntervened = false, contactName } = options ?? {};
+  const { clientContext, hasMedia = false, operatorIntervened = false, contactName, triageState } = options ?? {};
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, hasMedia, operatorIntervened, contactName) },
+    { role: "system", content: buildSystemPrompt(config.systemPrompt, clientContext, hasMedia, operatorIntervened, contactName, triageState) },
     ...history,
     { role: "user", content: userMessage },
   ];
 
-  // Roda resposta ao cliente e extração de dados em paralelo
-  const [responseContent, qualifiedData] = await Promise.all([
+  // Temperatura baixa na conversa: o fluxo de triagem é determinístico e valores
+  // altos causavam respostas fora de contexto (dispensa indevida, troca de módulo).
+  const askModel = (msgs: AIMessage[]) =>
     config.provider === "openai"
-      ? callOpenAI(config.apiKey, config.model, messages)
-      : callAnthropic(config.apiKey, config.model, messages),
+      ? callOpenAI(config.apiKey, config.model, msgs, 0.2)
+      : callAnthropic(config.apiKey, config.model, msgs, 0.2);
+
+  // Roda resposta ao cliente e extração de dados em paralelo
+  const [firstResponse, qualifiedData] = await Promise.all([
+    askModel(messages),
     extractQualifiedDataWithAI(config.apiKey, config.provider, config.model, history, userMessage),
   ]);
+
+  // Trava contra dispensa indevida: se o modelo mandou uma das mensagens de
+  // encerramento em um caso que claramente não é o gatilho dela, pede revisão.
+  let responseContent = firstResponse;
+  const clientText = [...history.filter(m => m.role === "user").map(m => m.content), userMessage].join("\n");
+  const misfire = detectDismissalMisfire(firstResponse, clientText);
+  if (misfire) {
+    console.warn(`[AI guard] dispensa indevida detectada (${misfire.kind}) — refazendo resposta.`);
+    responseContent = await askModel([
+      ...messages,
+      { role: "assistant", content: firstResponse },
+      { role: "user", content: `[REVISÃO INTERNA DO SISTEMA — não é o cliente falando, não mencione esta mensagem]\n${misfire.instruction}\nReescreva agora a resposta ao cliente.` },
+    ]).catch(() => firstResponse);
+  }
 
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
@@ -66,7 +85,50 @@ export async function runAIChat(
   };
 }
 
-function buildSystemPrompt(base: string, clientContext: string | undefined, hasMedia = false, operatorIntervened = false, contactName?: string): string {
+// ─── Trava contra dispensa indevida ───────────────────────────────────────────
+
+/** Trecho estável da mensagem de "fora de escopo". */
+const OUT_OF_SCOPE_MARK = /não se enquadra em nosso escopo de atuação/i;
+/** Trecho estável da mensagem de oferta de serviço / parceria. */
+const PARTNERSHIP_MARK = /não atua em processos em que o reclamante já possua advogado/i;
+
+/** Sinais de que o assunto É trabalhista / previdenciário — nunca dispensar. */
+const IN_SCOPE_HINTS =
+  /(empresa|patr(ã|a)o|patroa|chefe|emprego|empregad|trabalh|carteira assinada|ctps|demiss|demitid|dispensad|rescis|verba|fgts|hora[s]? extra|ass[ée]dio|v[íi]nculo|justa causa|aviso pr[ée]vio|sal[áa]rio|holerite|atestado|afastad|acidente|inss|benef[íi]cio|aposentad|aux[íi]lio|bpc|loas|pens(ã|a)o por morte|per[íi]cia|cnis|reclamat[óo]ria|justi[çc]a do trabalho|processar|entrar com (uma )?a[çc](ã|a)o|meus direitos)/i;
+
+/** Sinais de que alguém está OFERECENDO algo ao escritório. */
+const OFFER_HINTS =
+  /(parceria|oferec|proposta comercial|or[çc]amento|marketing|tr[áa]fego pago|capta[çc](ã|a)o de clientes|divulga[çc](ã|a)o|nossa empresa|nossa ag[êe]ncia|represento a|sou consultor|software|sistema de gest(ã|a)o|planilha|curr[íi]culo|vaga de|estou (me )?candidatando|presta[çc](ã|a)o de servi[çc]os para|fornecedor)/i;
+
+function detectDismissalMisfire(
+  response: string,
+  clientText: string
+): { kind: string; instruction: string } | null {
+  if (OUT_OF_SCOPE_MARK.test(response) && IN_SCOPE_HINTS.test(clientText)) {
+    return {
+      kind: "fora_de_escopo",
+      instruction:
+        'Sua resposta dispensou o cliente com a mensagem de "fora do escopo de atuação", mas ele mencionou emprego, empresa, INSS ou benefício. Reavalie: se o caso tem qualquer relação com trabalho, empresa, patrão, INSS ou benefício, ele É do escopo — não dispense, continue a triagem perguntando a próxima informação que falta. Só mantenha a mensagem de dispensa, palavra por palavra, se o cliente tiver nomeado explicitamente outra matéria (divórcio, guarda, inventário, criminal, aluguel/despejo, consumidor, tributos, contratos empresariais). Máximo 3 frases quando continuar a triagem.',
+    };
+  }
+  if (PARTNERSHIP_MARK.test(response) && !OFFER_HINTS.test(clientText)) {
+    return {
+      kind: "parceria",
+      instruction:
+        'Sua resposta usou a mensagem reservada a quem OFERECE serviços, parcerias ou emprego ao escritório, mas nada na conversa indica isso — a pessoa está pedindo ajuda. Não dispense: responda ao que ela acabou de escrever e continue a triagem, em no máximo 3 frases. Só mantenha a mensagem de dispensa, palavra por palavra, se ela estiver de fato vendendo ou propondo algo ao escritório.',
+    };
+  }
+  return null;
+}
+
+function buildSystemPrompt(
+  base: string,
+  clientContext: string | undefined,
+  hasMedia = false,
+  operatorIntervened = false,
+  contactName?: string,
+  triageState?: string
+): string {
   const firstNameForGreeting = (() => {
     const raw = contactName?.trim();
     if (!raw) return "";
@@ -88,9 +150,9 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
 3. Sou cliente do escritório e gostaria de saber o andamento do meu processo
 4. Outros assuntos"
 
-- NUNCA pule esse menu na primeira interação. NUNCA pergunte CPF ou número de processo — você já tem o cadastro dele.
-- Só avance para resposta sobre processo APÓS o cliente escolher a opção 3.
-- Se o cliente cumprimentar de novo no meio da conversa ("Olá", "Oi") e o assunto anterior já terminou, repita o menu.
+- NUNCA pergunte CPF ou número de processo — você já tem o cadastro dele.
+- Se o cliente já disse claramente o motivo do contato na primeira mensagem, NÃO mostre o menu: responda o que ele pediu ou siga a triagem do assunto correspondente.
+- Só responda sobre andamento de processo APÓS o cliente escolher a opção 3 ou perguntar diretamente pelo processo.
 - Se o cliente pedir explicitamente "quais são as opções" ou "o que você faz", repita o menu.`
     : "";
 
@@ -98,24 +160,25 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
     ? `\n\n--- DADOS DO CLIENTE ---\n${clientContext}\n\nREGRA OBRIGATÓRIA PARA CLIENTES CADASTRADOS:
 - Este cliente JÁ ESTÁ CADASTRADO. NUNCA peça CPF nem número de processo.
 - Use o PRIMEIRO NOME do cliente (do campo "Nome" acima) na saudação do menu.
-- SOMENTE quando o cliente escolher a opção 3 do menu (andamento do processo), responda usando os dados da seção "Histórico de movimentações e atualizações do processo" acima.
+- Quando o cliente perguntar sobre andamento do processo, responda usando os dados da seção "Histórico de movimentações e atualizações do processo" acima.
 - NUNCA invente, deduza ou parafraseie movimentações que não estejam EXPLICITAMENTE listadas no histórico acima. Cite a movimentação como está registrada.
 - Se o histórico estiver vazio ("Nenhuma movimentação registrada"), responda: "Não tenho movimentações registradas no sistema ainda. A equipe do escritório poderá verificar isso para você." e inclua [TRANSFERIR_PARA_HUMANO] no final.
 - NUNCA responda com mensagens genéricas como "as informações estão sendo verificadas" quando houver histórico disponível acima.
-- Se o cliente escolher opção 1, 2 ou 4, siga as regras do menu acima (a opção 3 é apenas para andamento de processo).
 - Responda em linguagem simples, sem jargão jurídico. Máximo 3 frases.`
-    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem na ordem: nome → e-mail → menu de áreas (UMA pergunta por vez).\n- NÃO mostre o menu de 4 opções antes de coletar nome e e-mail.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa escolher a opção 3 do menu (andamento de processo) depois da triagem, peça o CPF para localizar o processo.`;
+    : `\n\n--- CONTEXTO ---\nVocê NÃO tem cadastro completo desta pessoa neste painel. Faça a triagem coletando o que ainda falta, UMA pergunta por vez.\n- Se ela fizer referência a conversas ou etapas que não aparecem no histórico acima, não tente adivinhar.\n- Se a pessoa quiser saber o andamento de um processo, peça o CPF para localizar.`;
 
   const mediaInstruction = hasMedia
     ? "\n- IMPORTANTE: O cliente enviou uma imagem ou documento. O conteúdo já foi extraído e está na mensagem abaixo entre colchetes. Use essas informações para responder diretamente — não diga que não consegue ver arquivos.\n- REGRA CRÍTICA: Se o documento for um COMPROVANTE DE PAGAMENTO ou TRANSFERÊNCIA BANCÁRIA, você deve responder APENAS com a frase exata: \"Olá! Recebi sua mensagem Nossa equipe já foi notificada e a doutora responderá em breve.\" e incluir [TRANSFERIR_PARA_HUMANO] no final, sem mais nenhuma palavra ou pergunta."
     : "";
 
-  const antiHallucination = `
+  const pacing = `
 REGRA DE RITMO — ABSOLUTA:
 - Envie APENAS UMA mensagem curta por vez. Faça UMA pergunta, aguarde a resposta, depois avance.
 - NUNCA faça duas perguntas na mesma mensagem.
-- NUNCA antecipe respostas do cliente nem pule etapas.
-- Máximo 3 frases por mensagem.
+- Máximo 3 frases por mensagem. Nada de textão nem de listas longas de exemplos.
+- NUNCA repita uma pergunta que o cliente já respondeu, nem reformulada com outras palavras. Releia o histórico antes de perguntar.
+- Se o cliente já contou o caso espontaneamente, considere o relato coletado e avance — não peça para ele contar de novo.
+- Se não faltar mais nenhuma informação, encerre a triagem em vez de continuar perguntando.
 
 REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA invente, suponha ou deduza informações que o cliente não disse explicitamente nesta conversa.
@@ -127,20 +190,14 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - NUNCA pergunte sobre prazos processuais, vencimento ou "quanto tempo falta" só para saber se o caso é urgente ou prioritário.
 - Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
 
-REGRA PARA ÁREAS FORA DO ESCOPO:
-- Se o cliente perguntar sobre áreas que NÃO sejam Trabalhista, Previdenciário ou Acidente de Trabalho (ex.: direito de família, criminal, civil, tributário, imobiliário, empresarial, etc.), responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista, Previdenciária e de Acidente de Trabalho. Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
-
-REGRA PARA OFERTAS DE SERVIÇO E PARCERIAS:
-- Se a mensagem for de alguém oferecendo serviços, propondo parcerias, vendendo algo ou buscando emprego, responda APENAS com a frase exata: "⚖️ Nosso escritório não atua em processos em que o reclamante já possua advogado constituído com ações em andamento.\n\n🤝 Agradecemos imensamente a confiança em nosso trabalho.\n\n📬 Permanecemos à disposição para futuras oportunidades.\n\n\nDra Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
-
-REGRA PARA OPÇÃO OUTROS ASSUNTOS:
-- Se o cliente escolher a opção "4 - Outros assuntos", digitar "4", ou informar que o assunto não é Trabalhista nem Previdenciário, responda APENAS com a exata frase: "Envie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO e logo retornaremos seu chamado" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.`;
+REGRA DE COERÊNCIA — ABSOLUTA:
+- Sua resposta precisa responder à ÚLTIMA mensagem do cliente. Nunca envie um texto pronto que não tenha relação com o que ele acabou de escrever.
+- As mensagens de dispensa (fora de escopo e oferta de serviço/parceria) só podem ser usadas nos gatilhos inequívocos descritos acima. Na dúvida, siga a triagem — jamais dispense um cliente que fala de emprego, empresa, patrão, INSS ou benefício.
+- Nunca peça documentos do INSS (Processo Administrativo, carta de indeferimento, CNIS) em um caso trabalhista. Nunca pergunte sobre empresa/rescisão em um caso previdenciário.`;
 
   const instructions = clientContext
     ? `\nINSTRUÇÕES OBRIGATÓRIAS (cliente cadastrado):
 - Este é um cliente existente do escritório. Trate-o com cordialidade pelo PRIMEIRO NOME do campo "Nome" acima.
-- Na PRIMEIRA mensagem (ou retomada após "Olá"/"Oi"), apresente o menu obrigatório de 4 opções definido em "SAUDAÇÃO INICIAL OBRIGATÓRIA". NUNCA pule essa saudação para responder direto sobre processo.
-- Só responda sobre andamento de processo APÓS o cliente escolher a opção 3.
 - Responda APENAS com base nos dados listados acima. Se a informação não estiver lá, não invente.
 - NUNCA forneça parecer jurídico, prometa resultados ou invente informações além do que está registrado.
 - NUNCA marque consultas, reuniões, ligações ou confirme horários — diga que a equipe entrará em contato pelo WhatsApp.
@@ -149,17 +206,20 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - NUNCA pergunte se o cliente já tem advogado.
 - Se o cliente quiser falar com a equipe jurídica ou pedir atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.
 - Responda em português brasileiro, de forma empática e profissional. Máximo 3 frases.`
-    : `\nINSTRUCOES OBRIGATORIAS (NAO cadastrado — triagem):
-- Analise o historico e identifique quais etapas ja foram concluidas: nome completo, e-mail, area, situacao.
-- SEMPRE termine sua mensagem com a proxima etapa pendente. NUNCA termine com "Como posso ajudar?", "Em que posso ajudar?" ou qualquer frase generica.
-- ETAPA 1 — NOME: Se nao ha nome no historico, termine sua mensagem perguntando APENAS o nome completo. Nada mais.
-- ETAPA 2 — EMAIL: Se ja tem nome mas nao tem e-mail, termine sua mensagem pedindo APENAS o e-mail.
-- ETAPA 3 — MENU: Se ja tem nome E e-mail, apresente EXATAMENTE:\n"Para que eu possa direcionar voce ao profissional adequado, sobre qual dos assuntos voce busca orientacao?\n\n1. Previdenciario (aposentadoria, auxilio-doenca, BPC, etc.)\n2. Trabalhista (rescisao, horas extras, assedio, vinculo empregaticio, acidente de trabalho, etc.)\n3. Sou cliente do escritorio e gostaria de saber o andamento do meu processo\n4. Outros assuntos"
-- ETAPA 4 — SITUACAO: Apos a escolha, peca a situacao conforme o modulo. Se opcao 3, peca CPF.
-- Qualquer que seja a mensagem do cliente (cumprimento, pergunta, divagacao), SEMPRE termine com a proxima etapa pendente.
-- Ao concluir (nome + e-mail + area + situacao), encerre com mensagem de registro e inclua [TRIAGEM COMPLETA].
-- NUNCA forneca orientacao juridica ou garanta resultados.
-- Se solicitar humano, inclua [TRANSFERIR_PARA_HUMANO] no final.`;
+    : `\nINSTRUÇÕES OBRIGATÓRIAS (não cadastrado — triagem):
+- Antes de responder, releia o histórico e liste mentalmente o que JÁ foi informado: nome completo, e-mail, área, situação, tipo do problema e relato do caso.
+- Pergunte SOMENTE a primeira dessas informações que ainda estiver faltando. Tudo que já apareceu na conversa está coletado — não pergunte de novo.
+- Ordem preferencial quando várias faltam: nome → e-mail → área → situação → tipo → relato. Se o cliente já entregou uma delas fora de ordem, apenas pule.
+- Se a área já ficou clara pelo que o cliente escreveu (ex.: falou de empresa, patrão, demissão, INSS, benefício), NÃO apresente o menu de 4 opções: confirme a área em uma frase e siga para o módulo correspondente.
+- Se nenhuma área estiver clara e você já tiver nome e e-mail, apresente o menu de 4 opções exatamente como definido acima.
+- SEMPRE termine sua mensagem com a próxima informação que falta. NUNCA termine com "Como posso ajudar?", "Em que posso ajudar?" ou qualquer frase genérica.
+- Quando nome + e-mail + área + situação + tipo + relato estiverem completos, encerre com a mensagem de registro e inclua [TRIAGEM COMPLETA].
+- NUNCA forneça orientação jurídica ou garanta resultados.
+- Se o cliente solicitar atendimento humano, inclua [TRANSFERIR_PARA_HUMANO] no final.`;
+
+  const triageStateSection = triageState
+    ? `\n\n--- ESTADO DA TRIAGEM (extraído automaticamente desta conversa) ---\n${triageState}\n- Todo item marcado como "JÁ COLETADO" está respondido: é PROIBIDO perguntá-lo novamente.\n- Pergunte apenas o primeiro item marcado como "FALTA".\n- Se nada estiver marcado como "FALTA", encerre a triagem.`
+    : "";
 
   const operatorNote = operatorIntervened
     ? `\n\nREGRA CRÍTICA — MENSAGENS DA DRA. SHEILA NO HISTÓRICO:
@@ -170,7 +230,7 @@ REGRA PARA OPÇÃO OUTROS ASSUNTOS:
 - Se o humano já coletou alguma informação (nome, e-mail, área), considere essa informação como disponível e não repita a pergunta.`
     : "";
 
-  return `${base}${clientSection}${menuGreetingRule}${antiHallucination}${instructions}${mediaInstruction}${operatorNote}`;
+  return `${base}${clientSection}${menuGreetingRule}${pacing}${instructions}${triageStateSection}${mediaInstruction}${operatorNote}`;
 }
 
 // ─── Extração estruturada de dados via IA ────────────────────────────────────
@@ -199,7 +259,7 @@ REGRAS CRÍTICAS:
 - Se o nome não foi dito claramente, omita o campo "name" completamente.
 - Só preencha "email" se o cliente informou o próprio e-mail de forma explícita (ex: "meu e-mail é...", "pode me mandar para...@..."). NUNCA extraia e-mails que apareçam como exemplos, contexto ou de terceiros.
 - Só preencha "legalArea" se o tipo do problema jurídico ficou claro na conversa.
-- Só preencha "caseSummary" se há informações suficientes para um resumo real.
+- Preencha "caseSummary" sempre que o cliente já tiver descrito o que aconteceu com ele, mesmo que de forma desorganizada ou incompleta. Esse campo é usado para não pedir o relato duas vezes — se ele já contou algo do caso, resuma.
 
 Campos possíveis (omita os que não tiver certeza):
 {
@@ -224,9 +284,10 @@ Retorne APENAS o JSON, sem markdown.`;
   ];
 
   try {
+    // Extração é tarefa determinística — temperatura 0 evita JSON inventado
     const raw = provider === "openai"
-      ? await callOpenAI(apiKey, model, messages)
-      : await callAnthropic(apiKey, model, messages);
+      ? await callOpenAI(apiKey, model, messages, 0)
+      : await callAnthropic(apiKey, model, messages, 0);
 
     const parsed = JSON.parse(raw.replace(/```json\n?|```/g, "").trim());
 
@@ -492,18 +553,18 @@ export async function analyzeMediaWithAI(
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
-async function callOpenAI(apiKey: string, model: string, messages: AIMessage[]): Promise<string> {
+async function callOpenAI(apiKey: string, model: string, messages: AIMessage[], temperature = 0.7): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, max_tokens: 500, temperature: 0.7 }),
+    body: JSON.stringify({ model, messages, max_tokens: 500, temperature }),
   });
   if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
   const data = await res.json();
   return data.choices[0].message.content;
 }
 
-async function callAnthropic(apiKey: string, model: string, messages: AIMessage[]): Promise<string> {
+async function callAnthropic(apiKey: string, model: string, messages: AIMessage[], temperature?: number): Promise<string> {
   const systemMsg = messages.find(m => m.role === "system")?.content ?? "";
   const chatMessages = messages.filter(m => m.role !== "system");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -513,7 +574,13 @@ async function callAnthropic(apiKey: string, model: string, messages: AIMessage[
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model, max_tokens: 500, system: systemMsg, messages: chatMessages }),
+    body: JSON.stringify({
+      model,
+      max_tokens: 500,
+      system: systemMsg,
+      messages: chatMessages,
+      ...(temperature !== undefined && { temperature }),
+    }),
   });
   if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
   const data = await res.json();
