@@ -216,7 +216,10 @@ export async function processIncomingMessage(
   await syncDefaultPrompt(organizationId).catch(() => {});
 
   const convInclude = {
-    messages: { orderBy: { createdAt: "desc" as const }, take: 60 },
+    // 60 mensagens somadas a ~11 mil caracteres de system prompt afogavam o
+    // modelo (gpt-4o-mini) e faziam as regras do fluxo perderem peso. 24 cobre
+    // a triagem inteira com folga — o que já foi coletado vem do ESTADO DA TRIAGEM.
+    messages: { orderBy: { createdAt: "desc" as const }, take: 24 },
     lead: { include: { stage: true } },
   };
   let conversation = await prisma.conversation.findUnique({
