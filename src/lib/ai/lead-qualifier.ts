@@ -36,7 +36,23 @@ async function syncDefaultPrompt(organizationId: string): Promise<void> {
         organizationId,
       },
     });
-  } else if (existing.content !== SHEILA_PROMPT || !existing.isDefault) {
+    return;
+  }
+
+  // Não há constraint de unicidade em isDefault: sem esta limpeza, marcar o
+  // template da Sheila como padrão deixava DOIS padrões no banco ao mesmo tempo
+  // (o outro, marcado pelo painel). Como resolveAIConfig escolhia um deles sem
+  // ordenação definida, a IA às vezes rodava com o prompt errado e ignorava
+  // todo o fluxo de triagem.
+  const demoted = await prisma.promptTemplate.updateMany({
+    where: { organizationId, isDefault: true, id: { not: existing.id } },
+    data: { isDefault: false },
+  });
+  if (demoted.count > 0) {
+    console.warn(`[AI Prompt] ${demoted.count} template(s) concorrente(s) desmarcado(s) como padrão na org ${organizationId}.`);
+  }
+
+  if (existing.content !== SHEILA_PROMPT || !existing.isDefault) {
     await prisma.promptTemplate.update({
       where: { id: existing.id },
       data: { content: SHEILA_PROMPT, isDefault: true },
@@ -67,12 +83,23 @@ async function resolveAIConfig(organizationId: string, phoneNumber: string) {
   const apiKey = orgApiKey ?? aiConfig.apiKey ?? "";
   if (!apiKey) return null;
 
-  // Usa o PromptTemplate marcado como padrão, com fallback para aiConfig.systemPrompt
+  // Usa o PromptTemplate marcado como padrão, com fallback para aiConfig.systemPrompt.
+  // O orderBy é a rede de segurança caso sobre mais de um padrão no banco: sem ele
+  // o Postgres devolvia qualquer um, e a IA rodava ora com o prompt de triagem,
+  // ora com outro — a causa de "às vezes não segue o fluxo".
   const defaultTemplate = await prisma.promptTemplate.findFirst({
     where: { organizationId, isDefault: true },
-    select: { content: true },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    select: { name: true, content: true },
   });
   const systemPrompt = defaultTemplate?.content ?? aiConfig.systemPrompt ?? "";
+
+  // Diagnóstico: identifica prompt e modelo realmente usados em cada atendimento.
+  console.log(
+    `[AI Config] modelo=${aiConfig.model} provider=${provider} ` +
+    `prompt="${defaultTemplate?.name ?? "(aiConfig.systemPrompt)"}" (${systemPrompt.length} chars)` +
+    `${systemPrompt === SHEILA_PROMPT ? "" : " ⚠ NÃO é o prompt de triagem do código"}`
+  );
 
   return {
     apiKey,
@@ -382,6 +409,11 @@ export async function processIncomingMessage(
   // a triagem (e a trava contra encaminhar sem triar) vale só para contato não cadastrado.
   const triageState = clientContext ? undefined : buildTriageState(lead);
   const triagePending = !clientContext && isTriagePending(lead);
+
+  console.log(
+    `[AI Fluxo] conv=${conversationId} ${clientContext ? "CLIENTE CADASTRADO (menu)" : "TRIAGEM (nao cadastrado)"} ` +
+    `triagemPendente=${triagePending} historico=${history.length} msgs`
+  );
 
   let result = await runAIChat(config, history, userMessage, {
     clientContext,
