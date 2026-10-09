@@ -59,10 +59,24 @@ function isGenericHandoff(text: string): boolean {
 // estrito, mas o modelo erra: "colocar empresa na justiça" caiu em fora de
 // escopo e "que horas posso ligar" caiu em parceria. Cada erro perde um cliente.
 
-/** Trecho estável da mensagem de "fora de escopo". */
-const OUT_OF_SCOPE_MARK = /não se enquadra em nosso escopo de atuação/i;
+/**
+ * Trecho estável da mensagem de "fora de escopo" — texto atual e o anterior,
+ * porque o prompt no banco leva até 10 min para sincronizar após o deploy.
+ */
+const OUT_OF_SCOPE_MARK =
+  /não atuamos na área que busca|atuamos somente nas áreas trabalhista|não se enquadra em nosso escopo de atuação/i;
 /** Trecho estável da mensagem de oferta de serviço / parceria. */
 const PARTNERSHIP_MARK = /não estamos buscando parcerias ou serviços externos/i;
+
+/**
+ * Única autorização para dispensar por área: o cliente NOMEOU outra matéria.
+ * A lista é fechada de propósito. Enquanto nada aqui aparecer no texto dele,
+ * não se sabe o que ele quer — e dispensar sem saber é o erro que a Dra. Sheila
+ * cobra desde fevereiro ("Vocês estão localizados em Pouso Alegre?" foi
+ * dispensado como se fosse pedido de outra área).
+ */
+const OUT_OF_SCOPE_TOPICS =
+  /(div[óo]rci|separa[çc](ã|a)o|guarda (d[eo]s? )?(filh|menor|crian)|pens(ã|a)o aliment|alimentos para|invent[áa]ri|heran[çc]a|partilha de bens|uni(ã|a)o est[áa]vel|ado[çc](ã|a)o|crimin|delegacia|preso|pris(ã|a)o|flagrante|habeas|despejo|aluguel|loca[çc](ã|a)o|inquilin|condom[íi]ni|usucapi(ã|a)o|escritura|consumidor|procon|garantia do produto|comprei|loja n(ã|a)o|neg[áa]tiva[çc](ã|a)o|serasa|spc|tribut|imposto de renda|icms|iss|abrir (uma )?empresa|contrato social|s[óo]cio|mei|tr[âa]nsito|multa de tr[âa]nsito|cnh|detran|plano de sa[úu]de|erro m[ée]dic|v[íi]cio de constru[çc](ã|a)o)/i;
 
 /** Sinais de que o assunto É trabalhista / previdenciário — nunca dispensar. */
 const IN_SCOPE_HINTS =
@@ -76,12 +90,23 @@ function detectDismissalMisfire(
   response: string,
   clientText: string
 ): { kind: string; instruction: string } | null {
-  if (OUT_OF_SCOPE_MARK.test(response) && IN_SCOPE_HINTS.test(clientText)) {
-    return {
-      kind: "fora_de_escopo",
-      instruction:
-        'Sua resposta dispensou o cliente com a mensagem de "fora do escopo de atuação", mas ele mencionou emprego, empresa, INSS ou benefício. Reavalie: se o caso tem qualquer relação com trabalho, empresa, patrão, INSS ou benefício, ele É do escopo — não dispense, continue a triagem perguntando a próxima informação que falta. Só mantenha a mensagem de dispensa, palavra por palavra, se o cliente tiver nomeado explicitamente outra matéria (divórcio, guarda, inventário, criminal, aluguel/despejo, consumidor, tributos, contratos empresariais). Máximo 3 frases quando continuar a triagem.',
-    };
+  if (OUT_OF_SCOPE_MARK.test(response)) {
+    // Dispensa por área exige que o cliente tenha nomeado outra matéria.
+    // Sem isso, não se sabe o que ele quer, então a dispensa é sempre errada.
+    if (!OUT_OF_SCOPE_TOPICS.test(clientText)) {
+      return {
+        kind: "fora_de_escopo_sem_assunto",
+        instruction:
+          'Você dispensou a pessoa dizendo que não atuamos na área dela, mas em nenhum momento ela disse qual é a área. Dispensar sem saber o que a pessoa quer é o erro mais grave do atendimento: perde cliente real. Não dispense. Se ela fez uma pergunta (onde fica o escritório, cidade, horário, telefone, se atende online, quanto custa, como funciona), responda essa pergunta em uma frase; se você não tiver o dado, diga que a equipe informa. Depois siga a triagem pedindo a próxima informação que falta. Se ela ainda não disse o assunto, pergunte qual é o assunto. Máximo 3 frases.',
+      };
+    }
+    if (IN_SCOPE_HINTS.test(clientText)) {
+      return {
+        kind: "fora_de_escopo",
+        instruction:
+          'Sua resposta dispensou o cliente dizendo que não atuamos na área dele, mas ele mencionou emprego, empresa, patrão, INSS ou benefício — isso É trabalhista ou previdenciário, mesmo que ele também tenha citado outro assunto. Não dispense: atenda a parte que é do escopo e siga a triagem pedindo a próxima informação que falta. Máximo 3 frases.',
+      };
+    }
   }
   if (PARTNERSHIP_MARK.test(response) && !OFFER_HINTS.test(clientText)) {
     return {
@@ -248,7 +273,9 @@ REGRAS ANTI-ALUCINAÇÃO — ABSOLUTAS:
 - Se o próprio cliente pedir humano ou equipe jurídica, inclua [TRANSFERIR_PARA_HUMANO] no final, sem comentar sobre urgência.
 
 REGRA PARA ÁREAS FORA DO ESCOPO:
-- Se o cliente perguntar sobre áreas que NÃO sejam Trabalhista ou Previdenciário (incluindo Acidente de Trabalho) (ex.: direito de família, criminal, civil, tributário, imobiliário, empresarial, etc.), responda APENAS com a frase exata: "Agradecemos pelo seu contato e pela confiança em nosso trabalho.\n\nInformamos que o Escritório de Advocacia Sheila Araújo atua com exclusividade nas áreas Trabalhista e Previdenciária (incluindo Acidente de Trabalho). Deste modo, a demanda apresentada não se enquadra em nosso escopo de atuação.\n\nPermanecemos à disposição para auxiliá-lo(a) em eventuais questões dentro das áreas de nossa especialização.\n\nAtenciosamente,\nDra. Sheila Araújo" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- Só quando o cliente pedir orientação sobre OUTRA ÁREA DO DIREITO e nomear essa área explicitamente (divórcio, guarda, pensão alimentícia, inventário, criminal, despejo, aluguel, condomínio, consumidor, dívida, tributos, contrato empresarial, trânsito, etc.), responda APENAS com a frase exata: "Atuamos somente nas áreas trabalhista e previdenciário\n\nNão atuamos na área que busca\n\nDe qualquer forma grata pelo contato\n\nAtt\n\nDra Sheila Araújo- Equipe" e inclua [TRANSFERIR_PARA_HUMANO] no final, sem adicionar mais nenhuma palavra.
+- É PROIBIDO enviar essa resposta sem saber o que a pessoa quer. Se você não sabe qual é o assunto dela, você NÃO pode dispensá-la: pergunte.
+- Perguntas sobre o ESCRITÓRIO não são pedido de outra área. Onde ficam, endereço, cidade, bairro, se atendem em determinada cidade ou estado, se atendem online ou presencial, horário, telefone, e-mail, quanto custa, como funciona, quanto tempo demora: responda de forma breve e siga a triagem pela próxima informação que falta. Se não souber o dado (endereço, horário), diga que a equipe informa e continue a triagem.
 - ATENÇÃO — NUNCA aplique essa resposta para assuntos de Previdenciário (INSS, aposentadoria, auxílio-doença, BPC/LOAS, perícia, CRAS, pensão por morte, auxílio-acidente, revisão de benefício) nem de Trabalhista/Acidente de Trabalho (rescisão, horas extras, FGTS, verbas rescisórias, assédio, vínculo empregatício). Esses assuntos SEMPRE estão dentro do escopo, mesmo que a mensagem chegue isolada, sem saudação prévia ou sem o restante da triagem concluída — nesse caso, continue a triagem normalmente em vez de usar a resposta de fora de escopo.
 - Use a resposta de fora do escopo ACIMA SOMENTE quando o cliente pedir, de forma EXPLÍCITA e INEQUÍVOCA, orientação jurídica sobre outra área do direito claramente diferente (ex.: divórcio, inventário, criminal, tributário, imobiliário) e SEM nenhuma relação com INSS, benefício ou trabalho. Na MENOR dúvida, se a mensagem misturar temas, ou se você não entender claramente o assunto, é PROIBIDO usar essa recusa — use a REGRA DE ENCAMINHAMENTO EM DÚVIDA abaixo.
 
