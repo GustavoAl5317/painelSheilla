@@ -461,6 +461,17 @@ export async function processIncomingMessage(
   }
 
   // ── Triagem concluída ─────────────────────────────────────────────────────
+  if (result.triageComplete) {
+    // Triagem concluída = fim do trabalho da IA. Antes ela só notificava e
+    // continuava conversando, repetindo perguntas e pedindo o relato de novo.
+    // Agora para e a conversa fica com a equipe, que dá prosseguimento.
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { status: "TRANSFERRED_TO_HUMAN", aiEnabled: false },
+    });
+    console.log(`[AI] Triagem concluída — IA desativada na conversa ${conversationId}.`);
+  }
+
   if (result.triageComplete && conversation.leadId) {
     await prisma.lead.update({
       where: { id: conversation.leadId },

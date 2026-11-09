@@ -86,6 +86,45 @@ const IN_SCOPE_HINTS =
 const OFFER_HINTS =
   /(parceria|oferec|proposta comercial|or[çc]amento|marketing|tr[áa]fego pago|capta[çc](ã|a)o de clientes|divulga[çc](ã|a)o|nossa empresa|nossa ag[êe]ncia|represento a|sou consultor|software|sistema de gest(ã|a)o|planilha|curr[íi]culo|vaga de|estou (me )?candidatando|presta[çc](ã|a)o de servi[çc]os para|fornecedor)/i;
 
+// ─── Trava de formato da resposta ────────────────────────────────────────────
+// "respostas longas, não para e fica repetindo as mesmas perguntas" — o prompt
+// já manda uma pergunta por vez e no máximo 3 frases, mas o gpt-4o-mini ignora
+// com frequência. Verificação determinística, após a resposta estar pronta.
+
+const MAX_REPLY_CHARS = 500;
+
+/** Textos fixos que o prompt manda enviar palavra por palavra: não reescrever. */
+const FIXED_REPLY_MARKS = [
+  OUT_OF_SCOPE_MARK,
+  PARTNERSHIP_MARK,
+  /sobre qual dos assuntos você busca orientação/i,
+  /me diga exatamente em que posso lhe ajudar hoje/i,
+  /Processo Administrativo \(carta de indeferimento/i,
+  /explicando o MOTIVO DO SEU CONTATO/i,
+];
+
+function isFixedReply(text: string): boolean {
+  return FIXED_REPLY_MARKS.some(re => re.test(text));
+}
+
+function detectFormatProblem(response: string): string | null {
+  const clean = response
+    .replace("[TRANSFERIR_PARA_HUMANO]", "")
+    .replace("[TRIAGEM COMPLETA]", "")
+    .trim();
+
+  if (isFixedReply(clean)) return null;
+
+  const questionCount = (clean.match(/\?/g) ?? []).length;
+  if (questionCount > 1) {
+    return "Sua resposta tem mais de uma pergunta. O cliente responde só a última e a triagem trava. Reescreva com UMA única pergunta, a da próxima informação que falta, em no máximo 2 frases.";
+  }
+  if (clean.length > MAX_REPLY_CHARS) {
+    return `Sua resposta tem ${clean.length} caracteres e ficou longa demais para WhatsApp. Reescreva em no máximo 2 frases curtas, mantendo só o acolhimento mínimo e a pergunta da próxima informação que falta.`;
+  }
+  return null;
+}
+
 function detectDismissalMisfire(
   response: string,
   clientText: string
@@ -183,6 +222,26 @@ export async function runAIChat(
     ]).catch(() => previous);
   }
 
+  // Formato: uma pergunta por mensagem e nada de textão.
+  const formatProblem = detectFormatProblem(responseContent);
+  if (formatProblem) {
+    console.warn("[AI guard] formato fora do padrao — refazendo resposta.");
+    const previous = responseContent;
+    const rewritten = await askModel([
+      ...messages,
+      { role: "assistant", content: previous },
+      {
+        role: "user",
+        content:
+          "[REVISÃO INTERNA DO SISTEMA — não é o cliente falando, não mencione esta mensagem]\n" +
+          formatProblem +
+          "\nMantenha as tags [TRANSFERIR_PARA_HUMANO] ou [TRIAGEM COMPLETA] se a resposta anterior tinha alguma.",
+      },
+    ]).catch(() => previous);
+    // Só aceita a reescrita se ela realmente ficou melhor.
+    responseContent = detectFormatProblem(rewritten) === null ? rewritten : previous;
+  }
+
   const shouldTransfer =
     config.transferKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase())) ||
     responseContent.includes("[TRANSFERIR_PARA_HUMANO]") ||
@@ -257,7 +316,10 @@ SAUDAÇÃO INICIAL OBRIGATÓRIA (CLIENTE CADASTRADO — MENU DE OPÇÕES):
   const antiHallucination = `
 REGRA DE RITMO — ABSOLUTA:
 - Envie APENAS UMA mensagem curta por vez. Faça UMA pergunta, aguarde a resposta, depois avance.
-- NUNCA faça duas perguntas na mesma mensagem.
+- NUNCA faça duas perguntas na mesma mensagem. Sua mensagem pode ter no máximo UM ponto de interrogação.
+- PERGUNTE SOMENTE as informações do fluxo de triagem: nome, e-mail, área, situação, tipo do problema e relato. É PROIBIDO inventar outras perguntas, como "você já tem alguma orientação sobre as medidas que pode tomar?", "quais medidas você já tentou tomar?", "quer saber sobre a possibilidade de entrar com uma ação?" ou qualquer pergunta sobre o que o cliente pretende fazer. Isso não é triagem e trava a conversa.
+- Assim que tiver situação + tipo + relato, ENCERRE com a mensagem de registro e [TRIAGEM COMPLETA]. Não puxe assunto, não ofereça orientação, não pergunte mais nada. A equipe assume a partir daí.
+- Se o cliente disser que tem documentos, áudios, fotos ou vídeos, agradeça em uma frase e siga para a próxima informação que falta — ou encerre, se não faltar nada. Não peça para ele enviar nem comente o valor probatório.
 - NUNCA antecipe respostas que o cliente ainda NÃO deu, nem pule etapas que ainda estão sem resposta. PORÉM, se o cliente JÁ respondeu algo (mesmo fora de ordem ou junto com outra resposta), considere coletado e NÃO pergunte de novo — avance para a próxima informação que falta.
 - Antes de perguntar, releia as mensagens do cliente e aproveite tudo que ele já disse (área, tipo de benefício/problema, situação). Não repita perguntas já respondidas.
 - Máximo 3 frases por mensagem, EXCETO quando a instrução mandar usar uma frase fixa/exata — nesse caso, use a frase completa sem truncar.
