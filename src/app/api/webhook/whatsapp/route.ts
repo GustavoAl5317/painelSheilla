@@ -14,6 +14,11 @@ import { resolveCredential } from "@/lib/credentials";
 // (ex: "Ola" e depois "tudo bem?") — tudo é agrupado em uma única chamada à IA.
 const AI_DEBOUNCE_MS = 15_000;
 
+// Idade máxima de uma mensagem para a IA ainda responder. Acima disso ela foi
+// reentregue pelo provider após reconexão, e responder agora chega ao cliente
+// em horário aleatório, dias depois do que ele escreveu.
+const STALE_MESSAGE_MS = 15 * 60_000;
+
 type PendingBatch = {
   timer: ReturnType<typeof setTimeout>;
   contents: string[];
@@ -453,6 +458,24 @@ export async function POST(req: NextRequest) {
   // Mensagem normal do operador já foi tratada acima — para aqui
   if (parsed.fromMe) {
     return NextResponse.json({ ok: true, ignored: "fromMe_processed" });
+  }
+
+  // ── Mensagem reentregue pelo provider ─────────────────────────────────────
+  // A Evolution/Baileys reentrega mensagens acumuladas quando a instância
+  // reconecta. Como o webhook nunca olhava o horário de envio, uma mensagem de
+  // ontem chegava agora e a IA respondia na hora da reentrega — foi assim que
+  // clientes receberam mensagem às 02:30 e 04:59, sem ter escrito nada.
+  // A mensagem continua salva e visível no painel; só não aciona a IA.
+  if (parsed.sentAt !== null) {
+    const ageMs = Date.now() - parsed.sentAt;
+    if (ageMs > STALE_MESSAGE_MS) {
+      const minutes = Math.round(ageMs / 60_000);
+      console.warn(
+        `[Webhook] IA ignorada para ${phoneNumber}: mensagem reentregue, enviada ha ${minutes} min ` +
+        `(${new Date(parsed.sentAt).toISOString()}).`
+      );
+      return NextResponse.json({ ok: true, ai: "stale_message", ageMinutes: minutes });
+    }
   }
 
   // ── Processa com IA (somente se aiEnabled) ────────────────────────────────

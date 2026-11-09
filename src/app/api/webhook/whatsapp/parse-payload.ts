@@ -19,7 +19,28 @@ type ParsedInbound = {
    * criptografada via endpoint getBase64FromMediaMessage quando o webhook não
    * traz o base64 já decodificado. */
   messageKey?: { id: string; remoteJid?: string; fromMe?: boolean };
+  /** Momento em que a mensagem foi enviada no WhatsApp, em ms epoch.
+   * Usado para não acionar a IA em mensagem reentregue pelo provider depois de
+   * uma reconexão: sem isso, mensagem antiga era respondida na hora da
+   * reentrega, de madrugada. null quando o payload não traz o campo. */
+  sentAt: number | null;
 };
+
+/** messageTimestamp vem em segundos (Baileys/Evolution); outros formatos em ms. */
+function parseSentAt(body: Record<string, unknown>): number | null {
+  const raw =
+    (body as any).messageTimestamp ??
+    (body as any).data?.messageTimestamp ??
+    (body as any).moment ??
+    (body as any).data?.moment;
+
+  const n = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : NaN;
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  // Heurística de unidade: epoch em segundos tem 10 dígitos até o ano 2286.
+  const ms = n < 1e12 ? n * 1000 : n;
+  return Number.isFinite(ms) ? ms : null;
+}
 
 function str(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -240,5 +261,6 @@ export function parseWhatsAppWebhookBody(body: Record<string, unknown>): ParsedI
     documentName,
     base64Media,
     messageKey,
+    sentAt: parseSentAt(body),
   };
 }

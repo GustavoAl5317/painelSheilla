@@ -5,6 +5,7 @@ import { resolveCredential } from "@/lib/credentials";
 import { summarizeCaseCardForWhatsApp } from "@/lib/ai/ai-service";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
 import { trelloAppendPlainComment } from "@/lib/adapters/trello-adapter";
+import { isWithinBusinessHours } from "@/lib/business-hours";
 const NOTIFY_COOLDOWN_MS = 90_000;
 
 export async function ensureClientCaseCard(organizationId: string, clientId: string) {
@@ -109,6 +110,13 @@ async function maybeNotifyClientFromCaseCard(
     card.lastNotifiedAt &&
     Date.now() - card.lastNotifiedAt.getTime() < NOTIFY_COOLDOWN_MS
   ) {
+    return false;
+  }
+
+  // Aviso de movimentação é mensagem não solicitada: respeita o expediente.
+  // Sai no próximo lançamento dentro do horário — lastNotifiedAt não é tocado aqui.
+  if (!(await isWithinBusinessHours(organizationId))) {
+    console.log(`[case-card] fora do expediente — aviso adiado (card=${cardId}).`);
     return false;
   }
 

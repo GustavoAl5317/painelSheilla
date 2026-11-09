@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-sender";
 import { emit } from "@/lib/sse-emitter";
+import { isWithinBusinessHours } from "@/lib/business-hours";
 
 const FOLLOWUP_MESSAGE =
   "Em que podemos lhe ajudar?\n\nSomos um escritório especializado em Direito Trabalhista, Previdenciário (INSS) e Acidente de Trabalho\n\nEnvie uma mensagem, por ESCRITO ou ÁUDIO, explicando o MOTIVO DO SEU CONTATO. Responderemos o mais rápido possível.";
@@ -39,13 +40,29 @@ export async function GET(req: NextRequest) {
   });
 
   let sent = 0;
+  let skippedOffHours = 0;
   const errors: string[] = [];
+  // Cache por org: o loop costuma repetir a mesma organização muitas vezes.
+  const businessHoursCache = new Map<string, boolean>();
 
   for (const conv of abandoned) {
     const phone = conv.phoneNumber.startsWith("lid:") ? "" : conv.phoneNumber;
     const chatLid = (conv as any).chatLid ?? null;
 
     if (!phone && !chatLid) continue;
+
+    // Follow-up é mensagem não solicitada: nunca mandar fora do expediente.
+    // Cliente recebendo mensagem do escritório de madrugada achou que o
+    // telefone da doutora tinha sido clonado.
+    let open = businessHoursCache.get(conv.organizationId);
+    if (open === undefined) {
+      open = await isWithinBusinessHours(conv.organizationId);
+      businessHoursCache.set(conv.organizationId, open);
+    }
+    if (!open) {
+      skippedOffHours++;
+      continue;
+    }
 
     try {
       // Salva a mensagem de follow-up no banco
@@ -75,5 +92,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, sent, errors });
+  return NextResponse.json({ ok: true, sent, skippedOffHours, errors });
 }
