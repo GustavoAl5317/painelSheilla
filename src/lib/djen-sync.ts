@@ -205,7 +205,8 @@ async function processDJENItems(
   items: ComunicacaoAPIItem[],
   aiKey: string | null,
   aiProvider: "openai" | "anthropic" | null,
-  result: DJENSyncResult
+  result: DJENSyncResult,
+  notifyClients = true
 ): Promise<void> {
   for (const item of items) {
     const pub = mapItemToPub(item);
@@ -351,6 +352,7 @@ async function processDJENItems(
         source: "DJEN",
         content: cardText,
         processId: linkedProcess.id,
+        notifyClient: notifyClients,
       }).catch(e => console.error("[DJEN] case-card:", (e as Error).message));
     }
 
@@ -377,7 +379,19 @@ async function processDJENItems(
 
 // ─── Sync principal ───────────────────────────────────────────────────────────
 
-export async function syncDJEN(organizationId: string): Promise<DJENSyncResult> {
+export interface SyncDJENOptions {
+  /** Quantos dias para tras buscar. Padrao 1 (ontem + hoje), como o cron diario. */
+  days?: number;
+  /** false grava no cartao sem avisar o cliente. Use em backfill. */
+  notifyClients?: boolean;
+}
+
+export async function syncDJEN(
+  organizationId: string,
+  options: SyncDJENOptions = {}
+): Promise<DJENSyncResult> {
+  const days = Math.min(90, Math.max(1, Math.trunc(options.days ?? 1)));
+  const notifyClients = options.notifyClients !== false;
   const result: DJENSyncResult = { synced: 0, errors: [] };
 
   const [oabRaw, pjeLogin, pjeSenha, openaiKey, anthropicKey] = await Promise.all([
@@ -397,7 +411,7 @@ export async function syncDJEN(organizationId: string): Promise<DJENSyncResult> 
   const aiKey = anthropicKey ?? openaiKey ?? null;
 
   const d0 = new Date();
-  d0.setDate(d0.getDate() - 1);
+  d0.setDate(d0.getDate() - days);
   const dataInicio = toISODateLocal(d0);
   const dataFim = toISODateLocal(new Date());
 
@@ -415,7 +429,7 @@ export async function syncDJEN(organizationId: string): Promise<DJENSyncResult> 
 
   if (allItems !== null) {
     // Processamento via PJe autenticado (itens já filtrados por data)
-    await processDJENItems(organizationId, allItems, aiKey, aiProvider, result);
+    await processDJENItems(organizationId, allItems, aiKey, aiProvider, result, notifyClients);
     return result;
   }
 
@@ -438,7 +452,7 @@ export async function syncDJEN(organizationId: string): Promise<DJENSyncResult> 
       continue;
     }
 
-    await processDJENItems(organizationId, items, aiKey, aiProvider, result);
+    await processDJENItems(organizationId, items, aiKey, aiProvider, result, notifyClients);
   }
 
   return result;

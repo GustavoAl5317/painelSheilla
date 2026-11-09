@@ -39,6 +39,10 @@ export interface AppendEntryInput {
   shareWithClient?: boolean;
   /** Para DJEN/PJe: só registra se o cartão estiver vinculado a este processo (ou cartão ainda sem processo = não aplica) */
   processId?: string | null;
+  /** false registra a entrada no cartão sem avisar o cliente no WhatsApp.
+   * Usado no backfill: recuperar publicações antigas não pode disparar uma
+   * enxurrada de mensagens para clientes sobre movimentação de semanas atrás. */
+  notifyClient?: boolean;
 }
 
 /**
@@ -77,7 +81,10 @@ export async function appendCaseCardEntry(
     trelloAppendPlainComment(organizationId, client.trelloCardId, line).catch(() => {});
   }
 
-  const notified = await maybeNotifyClientFromCaseCard(organizationId, card.id, client?.name ?? "Cliente");
+  const notified =
+    input.notifyClient === false
+      ? false
+      : await maybeNotifyClientFromCaseCard(organizationId, card.id, client?.name ?? "Cliente");
   return { entryId: entry.id, notified };
 }
 
