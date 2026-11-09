@@ -294,7 +294,16 @@ export async function POST(req: NextRequest) {
     // 3 minutos, é echo — ignora sem tocar no aiEnabled.
     // Comandos de pausa/retomada são verificados ANTES para nunca serem tratados como echo.
     const isCommand = cmd === ".." || cmd === "." || cmd === "#";
-    if (!isCommand) {
+
+    // A IA só envia TEXTO (sendWhatsAppMessage). Toda mídia que volta como
+    // fromMe foi o operador no celular, nunca eco. Antes caía no echo-check:
+    // áudio/imagem/documento viram placeholders genéricos ("[Áudio recebido]",
+    // "[Imagem recebida]"), que batiam com qualquer OUTBOUND igual recente, a
+    // requisição retornava como eco e a IA seguia ligada respondendo por cima
+    // da doutora.
+    const isOperatorMedia = messageType !== "TEXT" || !!audioUrl || !!imageUrl || !!documentUrl;
+
+    if (!isCommand && !isOperatorMedia) {
       const echoWindow = new Date(Date.now() - 3 * 60_000);
       const recentOutbound = await prisma.message.findMany({
         where: { conversationId: conversation.id, direction: "OUTBOUND", createdAt: { gte: echoWindow } },
@@ -302,10 +311,15 @@ export async function POST(req: NextRequest) {
       });
       const normalizeMsg = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
       const normalizedIncoming = normalizeMsg(messageContent);
-      // Aceita match parcial (primeiros 80 chars) para tolerar truncamento do Z-API
+      // Match parcial existe para tolerar truncamento do provider, mas só vale
+      // para texto longo: "Obrigado" digitado pelo operador casava com o começo
+      // de uma resposta da IA ("Obrigado pelas informações...") e a IA não pausava.
+      const MIN_PARTIAL_ECHO_LEN = 40;
       const isEcho = recentOutbound.some(m => {
         const n = normalizeMsg(m.content);
-        return n === normalizedIncoming || n.startsWith(normalizedIncoming.slice(0, 80)) || normalizedIncoming.startsWith(n.slice(0, 80));
+        if (n === normalizedIncoming) return true;
+        if (normalizedIncoming.length < MIN_PARTIAL_ECHO_LEN) return false;
+        return n.startsWith(normalizedIncoming.slice(0, 80)) || normalizedIncoming.startsWith(n.slice(0, 80));
       });
       if (isEcho) {
         console.log(`[webhook] echo outbound ignorado (conv=${conversation.id})`);
